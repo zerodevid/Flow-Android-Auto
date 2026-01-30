@@ -54,12 +54,19 @@
                     <div class="palette-node" draggable="true" data-type="webhook">🌐 Webhook</div>
                     <div class="palette-node" draggable="true" data-type="shell">📟 Shell</div>
                     <div class="palette-node" draggable="true" data-type="close">🛑 Close App</div>
+                    <div class="palette-node" draggable="true" data-type="clear_data">🧹 Clear Data</div>
+                    <div class="palette-node" draggable="true" data-type="ask_ai">🤖 Ask AI</div>
                     <div class="palette-node" draggable="true" data-type="data_source">📊 Data Source</div>
                 </div>
 
                 <h3>Device <button class="btn-small" onclick="refreshScreen()">📷 Refresh</button></h3>
                 <div id="device-info"></div>
                 <div id="elements-list" class="elements-list"></div>
+
+
+                <h3>Packages <button class="btn-small" onclick="loadPackages()">🔄</button></h3>
+                <div id="packages-info"></div>
+                <div id="packages-list" class="elements-list"></div>
             </aside>
 
             <!-- Canvas Area -->

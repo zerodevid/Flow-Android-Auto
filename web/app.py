@@ -209,7 +209,99 @@ def stop_flow(flow_id):
     return jsonify({'status': 'not_running'})
 
 
+@app.route('/api/run-step', methods=['POST'])
+def run_single_step():
+    """Execute a single step for testing purposes"""
+    from core.flow_runner import FlowRunner, StepContext
+    
+    data = request.json
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    step_type = data.get('type')
+    params = data.get('params', {})
+    session_id = data.get('session_id', 'test')
+    context_data = data.get('context_data', {})
+    
+    if not step_type:
+        return jsonify({'error': 'Missing step type'}), 400
+    
+    try:
+        runner = FlowRunner(get_portal())
+        
+        # Create single step config
+        step = {
+            'name': f'Test {step_type}',
+            'action': step_type,
+            'params': params,
+            'retry_count': 1,  # Single try for test
+            'wait_before': 0.2,
+            'wait_after': 0.2
+        }
+        
+        # Run single step
+        ctx = runner.run([step], session_id, initial_data=context_data)
+        
+        # Get result
+        if ctx.step_results:
+            result = ctx.step_results[0]
+            return jsonify({
+                'status': 'ok',
+                'result': result.get('result'),
+                'step': result.get('step'),
+                'captured_data': ctx.data
+            })
+        else:
+            return jsonify({'error': 'No result returned'}), 500
+            
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== Device Interaction ====================
+
+@app.route('/api/device/packages', methods=['GET'])
+def get_packages():
+    """Get list of installed packages on device"""
+    import subprocess
+    
+    filter_type = request.args.get('filter', 'user')  # user, system, all
+    search = request.args.get('search', '').lower()
+    
+    try:
+        # Get packages
+        if filter_type == 'user':
+            # Third-party apps only
+            cmd = ["adb", "shell", "pm", "list", "packages", "-3"]
+        elif filter_type == 'system':
+            # System apps only
+            cmd = ["adb", "shell", "pm", "list", "packages", "-s"]
+        else:
+            # All packages
+            cmd = ["adb", "shell", "pm", "list", "packages"]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        packages = []
+        for line in result.stdout.strip().split('\n'):
+            if line.startswith('package:'):
+                pkg = line.replace('package:', '').strip()
+                if search and search not in pkg.lower():
+                    continue
+                packages.append(pkg)
+        
+        packages.sort()
+        
+        return jsonify({
+            'packages': packages,
+            'count': len(packages),
+            'filter': filter_type
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/device/elements', methods=['GET'])
 def get_elements():

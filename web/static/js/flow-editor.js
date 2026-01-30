@@ -135,6 +135,23 @@ const nodeTypes = {
             { name: 'package', type: 'text', label: 'Package Name' }
         ]
     },
+    clear_data: {
+        icon: '🧹', title: 'Clear Data', color: '#f43f5e',
+        params: [
+            { name: 'package', type: 'text', label: 'Package Name' },
+            { name: 'cache_only', type: 'checkbox', label: 'Cache Only', default: false }
+        ]
+    },
+    ask_ai: {
+        icon: '🤖', title: 'Ask AI', color: '#8b5cf6',
+        params: [
+            { name: 'prompt', type: 'textarea', label: 'Prompt' },
+            { name: 'provider', type: 'select', label: 'Provider', options: ['gemini', 'openai', 'ollama'], default: 'gemini' },
+            { name: 'model', type: 'text', label: 'Model', default: 'gemini-2.0-flash' },
+            { name: 'include_screen', type: 'checkbox', label: 'Include Screen Context', default: false },
+            { name: 'save_as', type: 'text', label: 'Save As', default: 'ai_response' }
+        ]
+    },
     shell: {
         icon: '📟', title: 'Shell', color: '#374151',
         params: [
@@ -481,6 +498,10 @@ function showProperties(id) {
         } else if (p.type === 'number') {
             html += `<input type="number" value="${value}" 
                      onchange="updateParam('${id}', '${p.name}', parseFloat(this.value))">`;
+        } else if (p.type === 'textarea') {
+            html += `<textarea rows="4" 
+                     onchange="updateParam('${id}', '${p.name}', this.value)"
+                     placeholder="Enter prompt...">${value}</textarea>`;
         } else {
             html += `<input type="text" value="${value}" 
                      onchange="updateParam('${id}', '${p.name}', this.value)">`;
@@ -489,7 +510,120 @@ function showProperties(id) {
         html += `</div>`;
     });
 
+    // Add Run button for testing single node
+    html += `
+        <div class="property-actions">
+            <button class="btn-run-node" onclick="runSingleNode('${id}')">
+                <span class="run-icon">▶</span> Run
+            </button>
+        </div>
+        <div id="run-result-${id}" class="run-result"></div>
+    `;
+
     panel.innerHTML = html;
+}
+
+// ==================== Run Single Node ====================
+async function runSingleNode(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const config = nodeTypes[nodeData.type];
+    if (!config) return;
+
+    const btn = document.querySelector('.btn-run-node');
+    const resultDiv = document.getElementById(`run-result-${nodeId}`);
+    const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
+
+    // UI feedback - running
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="run-icon spinning">⟳</span> Running...';
+    }
+    if (nodeEl) {
+        nodeEl.classList.remove('node-success', 'node-error');
+        nodeEl.classList.add('node-running');
+    }
+    if (resultDiv) {
+        resultDiv.innerHTML = '<span class="result-pending">⏳ Executing...</span>';
+        resultDiv.className = 'run-result pending';
+    }
+
+    try {
+        const response = await fetch('/api/run-step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: nodeData.type,
+                params: nodeData.params,
+                session_id: 'test_' + Date.now(),
+                context_data: {}
+            })
+        });
+
+        const data = await response.json();
+
+        // Remove running state
+        if (nodeEl) {
+            nodeEl.classList.remove('node-running');
+        }
+
+        if (response.ok && data.result === 'success') {
+            // Success
+            if (btn) {
+                btn.innerHTML = '<span class="run-icon">✓</span> Success!';
+                btn.classList.add('success');
+            }
+            if (nodeEl) {
+                nodeEl.classList.add('node-success');
+            }
+            if (resultDiv) {
+                let msg = '✅ Step executed successfully';
+                if (data.captured_data && Object.keys(data.captured_data).length > 0) {
+                    msg += '<br><small>Captured: ' + JSON.stringify(data.captured_data) + '</small>';
+                }
+                resultDiv.innerHTML = msg;
+                resultDiv.className = 'run-result success';
+            }
+        } else {
+            // Failed
+            if (btn) {
+                btn.innerHTML = '<span class="run-icon">✗</span> Failed';
+                btn.classList.add('error');
+            }
+            if (nodeEl) {
+                nodeEl.classList.add('node-error');
+            }
+            if (resultDiv) {
+                resultDiv.innerHTML = `❌ ${data.error || data.result || 'Step failed'}`;
+                resultDiv.className = 'run-result error';
+            }
+        }
+
+    } catch (err) {
+        // Error
+        if (nodeEl) {
+            nodeEl.classList.remove('node-running');
+            nodeEl.classList.add('node-error');
+        }
+        if (btn) {
+            btn.innerHTML = '<span class="run-icon">✗</span> Error';
+            btn.classList.add('error');
+        }
+        if (resultDiv) {
+            resultDiv.innerHTML = `❌ Error: ${err.message}`;
+            resultDiv.className = 'run-result error';
+        }
+    }
+
+    // Reset button after delay
+    setTimeout(() => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="run-icon">▶</span> Run';
+            btn.classList.remove('success', 'error');
+        }
+    }, 2000);
 }
 
 // ==================== Data Source Table Editor ====================
@@ -1714,3 +1848,80 @@ function autoLayout() {
     renderConnections();
     setStatus("Auto layout complete (Smart Spacing) ✨");
 }
+
+// ==================== Package List ====================
+let cachedPackages = [];
+
+async function loadPackages() {
+    const list = document.getElementById('packages-list');
+    const info = document.getElementById('packages-info');
+
+    list.innerHTML = '<div class="hint">Loading...</div>';
+
+    try {
+        // Load user apps (third-party)
+        const response = await fetch('/api/device/packages?filter=user');
+        const data = await response.json();
+
+        if (data.error) {
+            list.innerHTML = `<div class="hint">Error: ${data.error}</div>`;
+            return;
+        }
+
+        cachedPackages = data.packages || [];
+
+        // Update info like elements
+        if (info) {
+            info.innerHTML = `<small>Apps: ${cachedPackages.length}</small>`;
+        }
+
+        renderPackages(cachedPackages);
+
+    } catch (err) {
+        list.innerHTML = `<div class="hint">Failed to load</div>`;
+    }
+}
+
+function renderPackages(packages) {
+    const list = document.getElementById('packages-list');
+
+    if (packages.length === 0) {
+        list.innerHTML = '<div class="hint">No packages found</div>';
+        return;
+    }
+
+    // Use same style as elements list
+    list.innerHTML = packages.map(pkg => {
+        // Get clean app name from package (last segment, capitalize)
+        const parts = pkg.split('.');
+        const appName = parts[parts.length - 1];
+
+        return `<div class="element-item" onclick="insertPackage('${pkg}')" title="${pkg}">${appName}</div>`;
+    }).join('');
+}
+
+function insertPackage(packageName) {
+    // Check if a node is selected and supports package param
+    if (state.selectedNode) {
+        const nodeData = state.nodes.get(state.selectedNode);
+        if (nodeData) {
+            const config = nodeTypes[nodeData.type];
+            // Only for nodes that have 'package' parameter
+            if (config && config.params.some(p => p.name === 'package')) {
+                nodeData.params.package = packageName;
+                updateNodeBody(state.selectedNode);
+                showProperties(state.selectedNode);
+                setStatus(`✓ Package: ${packageName}`);
+                return;
+            }
+        }
+    }
+
+    // If no supported node selected, copy to clipboard
+    navigator.clipboard.writeText(packageName).then(() => {
+        setStatus(`📋 Copied: ${packageName}`);
+    });
+}
+
+// Load packages on init (delayed)
+setTimeout(loadPackages, 2000);

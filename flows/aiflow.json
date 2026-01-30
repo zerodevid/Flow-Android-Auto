@@ -1,0 +1,115 @@
+{
+  "name": "AIflow",
+  "description": "Created with Flow Editor",
+  "data": {},
+  "steps": [
+    {
+      "name": "Ask AI: ai_response",
+      "action": "ask_ai",
+      "params": {
+        "include_screen": false,
+        "model": "gemini-2.0-flash",
+        "prompt": "Generate a unique gaming username based on this \nRequirements:\n- Maximum 15 characters\n- No special characters\n- Only output the username, nothing else",
+        "provider": "gemini",
+        "save_as": "ai_response"
+      }
+    },
+    {
+      "name": "Type:",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "from_data": "ai_response"
+      }
+    },
+    {
+      "name": "Condition: akbar",
+      "action": "condition",
+      "params": {
+        "check_text": "akbar"
+      }
+    },
+    {
+      "name": "Ask AI: ai_response",
+      "action": "ask_ai",
+      "params": {
+        "include_screen": false,
+        "model": "gemini-2.0-flash",
+        "prompt": "Generate a unique gaming username based on this \nRequirements:\n- Maximum 15 characters\n- No special characters\n- Only output the username, nothing else",
+        "provider": "gemini",
+        "save_as": "ai_response"
+      }
+    }
+  ],
+  "_editor": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "x": 50,
+        "y": 100,
+        "params": {}
+      },
+      {
+        "id": "node_1",
+        "params": {
+          "include_screen": false,
+          "model": "gemini-2.0-flash",
+          "prompt": "Generate a unique gaming username based on this \nRequirements:\n- Maximum 15 characters\n- No special characters\n- Only output the username, nothing else",
+          "provider": "gemini",
+          "save_as": "ai_response"
+        },
+        "type": "ask_ai",
+        "x": 260,
+        "y": 100
+      },
+      {
+        "id": "node_3",
+        "params": {
+          "clear": true,
+          "from_data": "ai_response"
+        },
+        "type": "type",
+        "x": 1133,
+        "y": 238
+      },
+      {
+        "id": "node_4",
+        "type": "condition",
+        "x": 934,
+        "y": 475,
+        "params": {
+          "check_text": "akbar"
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "start",
+        "fromPort": "out",
+        "to": "node_1",
+        "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "no",
+        "to": "node_1",
+        "toPort": "in"
+      },
+      {
+        "from": "node_1",
+        "fromPort": "out",
+        "to": "node_3",
+        "toPort": "in"
+      },
+      {
+        "from": "node_3",
+        "fromPort": "out",
+        "to": "node_4",
+        "toPort": "in"
+      }
+    ]
+  },
+  "id": "aiflow",
+  "updated_at": "2026-01-30T16:04:01.783576"
+}

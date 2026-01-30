@@ -13,6 +13,29 @@ import re
 
 # Disable proxy for localhost to avoid timeouts
 os.environ["no_proxy"] = "127.0.0.1,localhost"
+
+# Load environment variables from .env file
+def load_dotenv():
+    """Load .env file from project root"""
+    env_paths = [
+        '/home/zeroserver/Project/auto_register/.env',
+        os.path.join(os.path.dirname(__file__), '..', '.env'),
+    ]
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        if value and key not in os.environ:
+                            os.environ[key] = value
+            break
+
+load_dotenv()
+
 from typing import Optional, Dict, Any, Callable, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -528,8 +551,177 @@ class StepRegistry:
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
+        # Clear app data/cache
+        def action_clear_data(ctx: StepContext, package: str = None, 
+                              cache_only: bool = False, **kwargs) -> StepResult:
+            if not package:
+                return StepResult.FAILED
+            
+            if cache_only:
+                # Clear only cache directory
+                result = subprocess.run(
+                    ["adb", "shell", "rm", "-rf", f"/data/data/{package}/cache/*"],
+                    capture_output=True, text=True, timeout=10
+                )
+                print(f"  🧹 Cache cleared: {package}")
+            else:
+                # Clear all app data (requires root or run-as for some apps)
+                result = subprocess.run(
+                    ["adb", "shell", "pm", "clear", package],
+                    capture_output=True, text=True, timeout=15
+                )
+                if "Success" in result.stdout:
+                    print(f"  🗑️ Data cleared: {package}")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ⚠️ Clear result: {result.stdout.strip()}")
+                    # Try alternative method
+                    subprocess.run(
+                        ["adb", "shell", "am", "force-stop", package],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    return StepResult.SUCCESS
+            
+            return StepResult.SUCCESS
+        
+        # Ask AI - query AI and save response
+        def action_ask_ai(ctx: StepContext, prompt: str = None, 
+                          provider: str = "gemini", model: str = None,
+                          include_screen: bool = False, save_as: str = "ai_response",
+                          **kwargs) -> StepResult:
+            import urllib.request
+            import urllib.error
+            
+            if not prompt:
+                print("  ✗ No prompt provided")
+                return StepResult.FAILED
+            
+            # Replace placeholders in prompt with context data
+            final_prompt = prompt
+            for key, value in ctx.data.items():
+                final_prompt = final_prompt.replace(f"{{{key}}}", str(value))
+            
+            # Optionally include screen context
+            if include_screen:
+                try:
+                    elements = self.portal.get_elements()
+                    flat = self.portal._flatten_elements(elements)
+                    screen_text = "\n".join([f"[{e.index}] {e.text}" for e in flat if e.text])
+                    final_prompt += f"\n\nCurrent screen elements:\n{screen_text}"
+                except:
+                    pass
+            
+            print(f"  🤖 Asking AI ({provider})...")
+            print(f"     Prompt: {final_prompt[:100]}...")
+            
+            try:
+                response_text = None
+                
+                if provider == "gemini":
+                    # Use Gemini API
+                    api_key = os.environ.get("GEMINI_API_KEY", "")
+                    if not api_key:
+                        print("  ✗ GEMINI_API_KEY not set")
+                        return StepResult.FAILED
+                    
+                    model_name = model or "gemini-2.0-flash"
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+                    
+                    payload = {
+                        "contents": [{"parts": [{"text": final_prompt}]}],
+                        "generationConfig": {"temperature": 0.7, "maxOutputTokens": 1024}
+                    }
+                    
+                    req = urllib.request.Request(
+                        url,
+                        data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        data = json.loads(resp.read().decode())
+                        response_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                
+                elif provider == "openai":
+                    # Use OpenAI API
+                    api_key = os.environ.get("OPENAI_API_KEY", "")
+                    if not api_key:
+                        print("  ✗ OPENAI_API_KEY not set")
+                        return StepResult.FAILED
+                    
+                    model_name = model or "gpt-4o-mini"
+                    url = "https://api.openai.com/v1/chat/completions"
+                    
+                    payload = {
+                        "model": model_name,
+                        "messages": [{"role": "user", "content": final_prompt}],
+                        "temperature": 0.7,
+                        "max_tokens": 1024
+                    }
+                    
+                    req = urllib.request.Request(
+                        url,
+                        data=json.dumps(payload).encode(),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Authorization": f"Bearer {api_key}"
+                        },
+                        method="POST"
+                    )
+                    
+                    with urllib.request.urlopen(req, timeout=30) as resp:
+                        data = json.loads(resp.read().decode())
+                        response_text = data["choices"][0]["message"]["content"]
+                
+                elif provider == "ollama":
+                    # Use local Ollama
+                    model_name = model or "llama3.2"
+                    url = "http://localhost:11434/api/generate"
+                    
+                    payload = {
+                        "model": model_name,
+                        "prompt": final_prompt,
+                        "stream": False
+                    }
+                    
+                    req = urllib.request.Request(
+                        url,
+                        data=json.dumps(payload).encode(),
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    
+                    with urllib.request.urlopen(req, timeout=60) as resp:
+                        data = json.loads(resp.read().decode())
+                        response_text = data.get("response", "")
+                
+                else:
+                    print(f"  ✗ Unknown provider: {provider}")
+                    return StepResult.FAILED
+                
+                if response_text:
+                    # Clean up response (remove extra whitespace)
+                    response_text = response_text.strip()
+                    ctx.set(save_as, response_text)
+                    print(f"  ✓ AI Response saved to '{save_as}'")
+                    print(f"     Response: {response_text[:100]}...")
+                    return StepResult.SUCCESS
+                
+                print("  ✗ Empty response from AI")
+                return StepResult.FAILED
+                
+            except urllib.error.HTTPError as e:
+                print(f"  ✗ AI HTTP Error: {e.code} {e.reason}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ AI Error: {e}")
+                return StepResult.FAILED
+        
         self._actions["shell"] = action_shell
         self._actions["close"] = action_close
+        self._actions["clear_data"] = action_clear_data
+        self._actions["ask_ai"] = action_ask_ai
     
     def register(self, name: str, action: Callable):
         """Register a custom action"""

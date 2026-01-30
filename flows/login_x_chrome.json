@@ -1,0 +1,545 @@
+{
+  "name": "Login X via Chrome",
+  "description": "Created with Flow Editor",
+  "data": {},
+  "steps": [
+    {
+      "name": "Launch: com.android.chrome",
+      "action": "launch",
+      "params": {
+        "package": "com.android.chrome"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 2
+      }
+    },
+    {
+      "name": "Tap: com.android.chrome:id/url_bar",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.android.chrome:id/url_bar"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Type: https://x.com/i/flow/login",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "text": "https://x.com/i/flow/login"
+      }
+    },
+    {
+      "name": "Key: enter",
+      "action": "key",
+      "params": {
+        "key": "enter"
+      }
+    },
+    {
+      "name": "Wait: Sign in to X",
+      "action": "wait",
+      "params": {
+        "text": "Sign in to X",
+        "timeout": 15
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 3
+      }
+    },
+    {
+      "name": "Tap: Phone, email, or username",
+      "action": "tap",
+      "params": {
+        "text": "Phone, email, or username"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Type: butuhads@gmail.com",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "text": "butuhads@gmail.com"
+      }
+    },
+    {
+      "name": "Key: enter",
+      "action": "key",
+      "params": {
+        "key": "enter"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 3
+      }
+    },
+    {
+      "name": "Tap: Phone or username",
+      "action": "tap",
+      "params": {
+        "text": "Phone or username"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Type: butuhads@gmail.com",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "text": "butuhads@gmail.com"
+      }
+    },
+    {
+      "name": "Key: enter",
+      "action": "key",
+      "params": {
+        "key": "enter"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 3
+      }
+    },
+    {
+      "name": "Tap: Password",
+      "action": "tap",
+      "params": {
+        "text": "Password"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Type: Akbar234",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "text": "Akbar234"
+      }
+    },
+    {
+      "name": "Key: enter",
+      "action": "key",
+      "params": {
+        "key": "enter"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 5
+      }
+    }
+  ],
+  "_editor": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "x": 50,
+        "y": 100,
+        "params": {}
+      },
+      {
+        "id": "node_1",
+        "type": "launch",
+        "x": 260,
+        "y": 100,
+        "params": {
+          "package": "com.android.chrome"
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "delay",
+        "x": 557,
+        "y": 100,
+        "params": {
+          "seconds": 2
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "tap",
+        "x": 767,
+        "y": 100,
+        "params": {
+          "resource_id": "com.android.chrome:id/url_bar"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "delay",
+        "x": 50,
+        "y": 280,
+        "params": {
+          "seconds": 1
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "type",
+        "x": 260,
+        "y": 280,
+        "params": {
+          "clear": true,
+          "text": "https://x.com/i/flow/login"
+        }
+      },
+      {
+        "id": "node_6",
+        "type": "key",
+        "x": 613,
+        "y": 280,
+        "params": {
+          "key": "enter"
+        }
+      },
+      {
+        "id": "node_7",
+        "type": "wait",
+        "x": 823,
+        "y": 280,
+        "params": {
+          "text": "Sign in to X",
+          "timeout": 15
+        }
+      },
+      {
+        "id": "node_8",
+        "type": "delay",
+        "x": 50,
+        "y": 460,
+        "params": {
+          "seconds": 3
+        }
+      },
+      {
+        "id": "node_9",
+        "type": "tap",
+        "x": 260,
+        "y": 460,
+        "params": {
+          "text": "Phone, email, or username"
+        }
+      },
+      {
+        "id": "node_10",
+        "type": "delay",
+        "x": 529,
+        "y": 460,
+        "params": {
+          "seconds": 1
+        }
+      },
+      {
+        "id": "node_11",
+        "type": "type",
+        "x": 739,
+        "y": 460,
+        "params": {
+          "clear": true,
+          "text": "butuhads@gmail.com"
+        }
+      },
+      {
+        "id": "node_12",
+        "type": "key",
+        "x": 50,
+        "y": 640,
+        "params": {
+          "key": "enter"
+        }
+      },
+      {
+        "id": "node_13",
+        "type": "delay",
+        "x": 260,
+        "y": 640,
+        "params": {
+          "seconds": 3
+        }
+      },
+      {
+        "id": "node_14",
+        "type": "tap",
+        "x": 470,
+        "y": 640,
+        "params": {
+          "text": "Phone or username"
+        }
+      },
+      {
+        "id": "node_15",
+        "type": "delay",
+        "x": 696,
+        "y": 640,
+        "params": {
+          "seconds": 1
+        }
+      },
+      {
+        "id": "node_16",
+        "type": "type",
+        "x": 50,
+        "y": 820,
+        "params": {
+          "clear": true,
+          "text": "butuhads@gmail.com"
+        }
+      },
+      {
+        "id": "node_17",
+        "type": "key",
+        "x": 260,
+        "y": 820,
+        "params": {
+          "key": "enter"
+        }
+      },
+      {
+        "id": "node_18",
+        "type": "delay",
+        "x": 470,
+        "y": 820,
+        "params": {
+          "seconds": 3
+        }
+      },
+      {
+        "id": "node_19",
+        "type": "tap",
+        "x": 680,
+        "y": 820,
+        "params": {
+          "text": "Password"
+        }
+      },
+      {
+        "id": "node_20",
+        "type": "delay",
+        "x": 50,
+        "y": 1000,
+        "params": {
+          "seconds": 1
+        }
+      },
+      {
+        "id": "node_21",
+        "type": "type",
+        "x": 260,
+        "y": 1000,
+        "params": {
+          "clear": true,
+          "text": "Akbar234"
+        }
+      },
+      {
+        "id": "node_22",
+        "type": "key",
+        "x": 470,
+        "y": 1000,
+        "params": {
+          "key": "enter"
+        }
+      },
+      {
+        "id": "node_23",
+        "type": "delay",
+        "x": 680,
+        "y": 1000,
+        "params": {
+          "seconds": 5
+        }
+      },
+      {
+        "id": "node_25",
+        "type": "shell",
+        "x": 1099.247314453125,
+        "y": 672.5586395263672,
+        "params": {}
+      }
+    ],
+    "connections": [
+      {
+        "from": "start",
+        "fromPort": "out",
+        "to": "node_1",
+        "toPort": "in"
+      },
+      {
+        "from": "node_1",
+        "fromPort": "out",
+        "to": "node_2",
+        "toPort": "in"
+      },
+      {
+        "from": "node_2",
+        "fromPort": "out",
+        "to": "node_3",
+        "toPort": "in"
+      },
+      {
+        "from": "node_3",
+        "fromPort": "out",
+        "to": "node_4",
+        "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "out",
+        "to": "node_5",
+        "toPort": "in"
+      },
+      {
+        "from": "node_5",
+        "fromPort": "out",
+        "to": "node_6",
+        "toPort": "in"
+      },
+      {
+        "from": "node_6",
+        "fromPort": "out",
+        "to": "node_7",
+        "toPort": "in"
+      },
+      {
+        "from": "node_7",
+        "fromPort": "out",
+        "to": "node_8",
+        "toPort": "in"
+      },
+      {
+        "from": "node_8",
+        "fromPort": "out",
+        "to": "node_9",
+        "toPort": "in"
+      },
+      {
+        "from": "node_9",
+        "fromPort": "out",
+        "to": "node_10",
+        "toPort": "in"
+      },
+      {
+        "from": "node_10",
+        "fromPort": "out",
+        "to": "node_11",
+        "toPort": "in"
+      },
+      {
+        "from": "node_11",
+        "fromPort": "out",
+        "to": "node_12",
+        "toPort": "in"
+      },
+      {
+        "from": "node_12",
+        "fromPort": "out",
+        "to": "node_13",
+        "toPort": "in"
+      },
+      {
+        "from": "node_13",
+        "fromPort": "out",
+        "to": "node_14",
+        "toPort": "in"
+      },
+      {
+        "from": "node_14",
+        "fromPort": "out",
+        "to": "node_15",
+        "toPort": "in"
+      },
+      {
+        "from": "node_15",
+        "fromPort": "out",
+        "to": "node_16",
+        "toPort": "in"
+      },
+      {
+        "from": "node_16",
+        "fromPort": "out",
+        "to": "node_17",
+        "toPort": "in"
+      },
+      {
+        "from": "node_17",
+        "fromPort": "out",
+        "to": "node_18",
+        "toPort": "in"
+      },
+      {
+        "from": "node_18",
+        "fromPort": "out",
+        "to": "node_19",
+        "toPort": "in"
+      },
+      {
+        "from": "node_19",
+        "fromPort": "out",
+        "to": "node_20",
+        "toPort": "in"
+      },
+      {
+        "from": "node_20",
+        "fromPort": "out",
+        "to": "node_21",
+        "toPort": "in"
+      },
+      {
+        "from": "node_21",
+        "fromPort": "out",
+        "to": "node_22",
+        "toPort": "in"
+      },
+      {
+        "from": "node_22",
+        "fromPort": "out",
+        "to": "node_23",
+        "toPort": "in"
+      }
+    ]
+  },
+  "id": "login_x_chrome",
+  "updated_at": "2026-01-30T14:09:49.960069"
+}

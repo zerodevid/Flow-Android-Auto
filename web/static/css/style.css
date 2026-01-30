@@ -390,22 +390,42 @@ body {
     background: var(--node-totp);
 }
 
+.node[data-type="clear_data"] .node-header {
+    background: #f43f5e;
+}
+
+.node[data-type="close"] .node-header {
+    background: #dc2626;
+}
+
+.node[data-type="ask_ai"] .node-header {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+}
+
 /* ==================== Forms ==================== */
 input,
 select,
-button {
+button,
+textarea {
     font-family: inherit;
 }
 
 input[type="text"],
 input[type="number"],
-select {
+select,
+textarea {
     padding: 8px 12px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
     font-size: 0.9rem;
+}
+
+textarea {
+    width: 100%;
+    resize: vertical;
+    min-height: 80px;
 }
 
 input[type="text"]:focus,
@@ -851,4 +871,98 @@ button:hover {
 
 .btn-danger-small:hover {
     background: #dc2626;
+}
+
+/* ==================== Run Single Node Button ==================== */
+.property-actions {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.btn-run-node {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #10b981, #059669);
+    border: none;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+}
+
+.btn-run-node:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+}
+
+.btn-run-node:active {
+    transform: translateY(0);
+}
+
+.btn-run-node:disabled {
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+.btn-run-node.success {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+}
+
+.btn-run-node.error {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+}
+
+.btn-run-node .run-icon {
+    font-size: 1rem;
+}
+
+.btn-run-node .run-icon.spinning {
+    animation: spin 0.8s linear infinite;
+}
+
+/* Run Result */
+.run-result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    display: none;
+}
+
+.run-result:not(:empty) {
+    display: block;
+}
+
+.run-result.pending {
+    background: rgba(251, 191, 36, 0.15);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+}
+
+.run-result.success {
+    background: rgba(74, 222, 128, 0.15);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    color: #4ade80;
+}
+
+.run-result.error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.run-result small {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-secondary);
+    word-break: break-all;
 }
