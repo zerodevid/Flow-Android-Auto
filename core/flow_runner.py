@@ -504,6 +504,32 @@ class StepRegistry:
             "check": action_check,
             "webhook": action_webhook,
         }
+        
+        # Shell command (for adb operations)
+        def action_shell(ctx: StepContext, command: str = None, **kwargs) -> StepResult:
+            if command:
+                result = subprocess.run(
+                    ["adb", "shell"] + command.split(),
+                    capture_output=True, text=True, timeout=10
+                )
+                print(f"  📟 Shell: {command}")
+                if result.returncode == 0:
+                    return StepResult.SUCCESS
+            return StepResult.FAILED
+        
+        # Close/Force-stop app (remove from RAM)
+        def action_close(ctx: StepContext, package: str = None, **kwargs) -> StepResult:
+            if package:
+                result = subprocess.run(
+                    ["adb", "shell", "am", "force-stop", package],
+                    capture_output=True, text=True, timeout=10
+                )
+                print(f"  🛑 Force-stopped: {package}")
+                return StepResult.SUCCESS
+            return StepResult.FAILED
+        
+        self._actions["shell"] = action_shell
+        self._actions["close"] = action_close
     
     def register(self, name: str, action: Callable):
         """Register a custom action"""

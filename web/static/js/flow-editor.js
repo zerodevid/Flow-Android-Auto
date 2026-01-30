@@ -128,6 +128,18 @@ const nodeTypes = {
             { name: 'columns', type: 'columns', label: 'Columns', default: ['email', 'password'] },
             { name: 'rows', type: 'rows', label: 'Data Rows', default: [] }
         ]
+    },
+    close: {
+        icon: '🛑', title: 'Close App', color: '#dc2626',
+        params: [
+            { name: 'package', type: 'text', label: 'Package Name' }
+        ]
+    },
+    shell: {
+        icon: '📟', title: 'Shell', color: '#374151',
+        params: [
+            { name: 'command', type: 'text', label: 'ADB Shell Command' }
+        ]
     }
 };
 
@@ -820,11 +832,26 @@ function initConnections() {
     // Handle connection end - use document level to catch any mouseup
     document.addEventListener('mouseup', e => {
         if (state.connecting) {
-            // Find if we're over an input port
-            const inputPort = document.elementFromPoint(e.clientX, e.clientY);
+            // Find if we're over an input port - use larger hit area
+            const hitRadius = 25;
+            let targetInput = null;
 
-            if (inputPort && inputPort.classList.contains('node-input')) {
-                const targetNode = inputPort.closest('.node');
+            // Check all input ports for proximity
+            document.querySelectorAll('.node-input').forEach(port => {
+                const rect = port.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const distance = Math.sqrt(
+                    Math.pow(e.clientX - centerX, 2) +
+                    Math.pow(e.clientY - centerY, 2)
+                );
+                if (distance < hitRadius) {
+                    targetInput = port;
+                }
+            });
+
+            if (targetInput) {
+                const targetNode = targetInput.closest('.node');
                 if (targetNode && state.connecting.from !== targetNode.dataset.id) {
                     const conn = {
                         from: state.connecting.from,
@@ -1442,7 +1469,7 @@ function refreshScreen() {
                 const list = document.getElementById('elements-list');
                 list.innerHTML = elements.elements
                     .filter(e => e.text || e.resource_id)
-                    .map(e => `<div class="element-item" onclick="insertElement('${(e.text || '').replace(/'/g, "\\'")}', '${e.resource_id || ''}')">
+                    .map(e => `<div class="element-item" onclick="insertElement('${(e.text || '').replace(/'/g, "\\'")}', '${e.resource_id || ''}', ${e.index})">
                     [${e.index}] ${e.text || e.resource_id}
                 </div>`).join('');
             }
@@ -1458,12 +1485,24 @@ function refreshScreen() {
         });
 }
 
-function insertElement(text, resourceId) {
+function insertElement(text, resourceId, index) {
     if (state.selectedNode) {
         const nodeData = state.nodes.get(state.selectedNode);
         if (nodeData) {
-            if (text) nodeData.params.text = text;
-            if (resourceId) nodeData.params.resource_id = resourceId;
+            // Clear previous values first
+            delete nodeData.params.text;
+            delete nodeData.params.resource_id;
+            delete nodeData.params.index;
+
+            // Priority: resource_id > text > index
+            if (resourceId) {
+                nodeData.params.resource_id = resourceId;
+            } else if (text) {
+                nodeData.params.text = text;
+            } else if (index !== undefined) {
+                nodeData.params.index = index;
+            }
+
             updateNodeBody(state.selectedNode);
             showProperties(state.selectedNode);
         }
@@ -1561,4 +1600,117 @@ function initFloatingPanelDrag() {
             document.onmouseup = null;
         };
     };
+}
+
+
+// ==================== Auto Layout Algorithm ====================
+function autoLayout() {
+    // 1. Sort nodes topologically or by BFS order to get linear sequence
+    const adj = new Map();
+    const nodes = Array.from(state.nodes.values());
+
+    // Initialize adjacency list
+    nodes.forEach(node => {
+        adj.set(node.id, []);
+    });
+
+    // Populate edges
+    state.connections.forEach(conn => {
+        if (adj.has(conn.from)) {
+            adj.get(conn.from).push(conn.to);
+        }
+    });
+
+    // Find start node
+    let startNodeId = 'start';
+    if (!state.nodes.has('start')) {
+        const inDegree = new Map();
+        nodes.forEach(n => inDegree.set(n.id, 0));
+        state.connections.forEach(conn => {
+            inDegree.set(conn.to, (inDegree.get(conn.to) || 0) + 1);
+        });
+        const root = nodes.find(n => inDegree.get(n.id) === 0);
+        if (root) startNodeId = root.id;
+    }
+
+    // BFS to get linear order
+    const orderedNodes = [];
+    const visited = new Set();
+    const queue = [startNodeId];
+
+    while (visited.size < nodes.length) {
+        if (queue.length === 0) {
+            // Handle disconnected parts
+            const unvisited = nodes.find(n => !visited.has(n.id));
+            if (unvisited) {
+                queue.push(unvisited.id);
+            } else {
+                break;
+            }
+        }
+
+        const id = queue.shift();
+
+        if (visited.has(id)) continue;
+        visited.add(id);
+        orderedNodes.push(id);
+
+        const neighbors = adj.get(id) || [];
+        neighbors.forEach(nid => {
+            if (!visited.has(nid)) queue.push(nid);
+        });
+    }
+
+    // 2. Variable Width Grid Layout
+    const MAX_COLS = 4;
+    const START_X = 50;
+    const START_Y = 100;
+    const GAP_X = 50;
+    const ROW_HEIGHT = 180;
+
+    let currentRow = 0;
+    let currentCol = 0;
+    let nextX = START_X;
+
+    orderedNodes.forEach((nodeId) => {
+        const nodeData = state.nodes.get(nodeId);
+        if (!nodeData) return;
+
+        // Get actual element width from DOM to account for long text
+        const el = document.querySelector(`.node[data-id="${nodeId}"]`);
+        let width = 200; // Default fallback
+
+        if (el) {
+            // offsetWidth returns the CSS layout width (including borders map padding)
+            // This is ideal because we want to space based on visual size
+            width = el.offsetWidth;
+        }
+
+        // Ensure a healthy minimum for calculation
+        width = Math.max(width, 160);
+
+        // Check if we need to wrap to new row
+        // If we are past MAX_COLS
+        if (currentCol >= MAX_COLS) {
+            currentRow++;
+            currentCol = 0;
+            nextX = START_X;
+        }
+
+        nodeData.x = nextX;
+        nodeData.y = START_Y + (currentRow * ROW_HEIGHT);
+
+        // Update DOM Position
+        if (el) {
+            el.style.left = nodeData.x + 'px';
+            el.style.top = nodeData.y + 'px';
+        }
+
+        // Calculate next X position
+        nextX += width + GAP_X;
+        currentCol++;
+    });
+
+    renderConnections();
+    setStatus("Auto layout complete (Smart Spacing) ✨");
 }

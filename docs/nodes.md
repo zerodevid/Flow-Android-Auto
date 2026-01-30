@@ -294,3 +294,34 @@ Send HTTP request dengan captured data.
 ```
 
 Request body akan berisi semua captured data dari flow.
+
+---
+
+## 🛑 Close
+
+Force-stop application dan hapus dari RAM.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `package` | string | ✓ | - | Package name aplikasi |
+
+**Contoh:**
+```json
+{"action": "close", "params": {"package": "com.google.android.calculator"}}
+```
+
+---
+
+## 📟 Shell
+
+Jalankan ADB shell command.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `command` | string | ✓ | - | Shell command (tanpa 'adb shell' prefix) |
+
+**Contoh:**
+```json
+{"action": "shell", "params": {"command": "input keyevent 26"}}
+```
+
