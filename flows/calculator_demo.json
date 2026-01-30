@@ -1,0 +1,378 @@
+{
+  "name": "Calculator: 134 * 421 / 3221",
+  "description": "Created with Flow Editor",
+  "data": {},
+  "steps": [
+    {
+      "name": "Launch: com.google.android.calculator",
+      "action": "launch",
+      "params": {
+        "package": "com.google.android.calculator"
+      }
+    },
+    {
+      "name": "Wait: clear",
+      "action": "wait",
+      "params": {
+        "text": "clear",
+        "timeout": 5
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_1",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_1"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_3",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_3"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_4",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_4"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/op_mul",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/op_mul"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_4",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_4"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_2",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_2"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_1",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_1"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/op_div",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/op_div"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_3",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_3"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_2",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_2"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_2",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_2"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/digit_1",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/digit_1"
+      }
+    },
+    {
+      "name": "Tap: com.google.android.calculator:id/eq",
+      "action": "tap",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/eq"
+      }
+    },
+    {
+      "name": "Capture: com.google.android.calculator:id/result_final",
+      "action": "capture",
+      "params": {
+        "resource_id": "com.google.android.calculator:id/result_final",
+        "save_as": "result"
+      }
+    }
+  ],
+  "_editor": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "x": 50,
+        "y": 100,
+        "params": {}
+      },
+      {
+        "id": "node_1",
+        "params": {
+          "package": "com.google.android.calculator"
+        },
+        "type": "launch",
+        "x": 200,
+        "y": 100
+      },
+      {
+        "id": "node_2",
+        "params": {
+          "text": "clear",
+          "timeout": 5
+        },
+        "type": "wait",
+        "x": 380,
+        "y": 100
+      },
+      {
+        "id": "node_3",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_1"
+        },
+        "type": "tap",
+        "x": 560,
+        "y": 100
+      },
+      {
+        "id": "node_4",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_3"
+        },
+        "type": "tap",
+        "x": 740,
+        "y": 100
+      },
+      {
+        "id": "node_5",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_4"
+        },
+        "type": "tap",
+        "x": 920,
+        "y": 100
+      },
+      {
+        "id": "node_6",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/op_mul"
+        },
+        "type": "tap",
+        "x": 1100,
+        "y": 100
+      },
+      {
+        "id": "node_7",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_4"
+        },
+        "type": "tap",
+        "x": 1280,
+        "y": 100
+      },
+      {
+        "id": "node_8",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_2"
+        },
+        "type": "tap",
+        "x": 1460,
+        "y": 100
+      },
+      {
+        "id": "node_9",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_1"
+        },
+        "type": "tap",
+        "x": 1640,
+        "y": 100
+      },
+      {
+        "id": "node_10",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/op_div"
+        },
+        "type": "tap",
+        "x": 1820,
+        "y": 100
+      },
+      {
+        "id": "node_11",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_3"
+        },
+        "type": "tap",
+        "x": 2000,
+        "y": 100
+      },
+      {
+        "id": "node_12",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_2"
+        },
+        "type": "tap",
+        "x": 2180,
+        "y": 100
+      },
+      {
+        "id": "node_13",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_2"
+        },
+        "type": "tap",
+        "x": 2360,
+        "y": 100
+      },
+      {
+        "id": "node_14",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/digit_1"
+        },
+        "type": "tap",
+        "x": 2540,
+        "y": 100
+      },
+      {
+        "id": "node_15",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/eq"
+        },
+        "type": "tap",
+        "x": 2720,
+        "y": 100
+      },
+      {
+        "id": "node_16",
+        "params": {
+          "resource_id": "com.google.android.calculator:id/result_final",
+          "save_as": "result"
+        },
+        "type": "capture",
+        "x": 2900,
+        "y": 100
+      }
+    ],
+    "connections": [
+      {
+        "from": "start",
+        "fromPort": "out",
+        "to": "node_1",
+        "toPort": "in"
+      },
+      {
+        "from": "node_1",
+        "fromPort": "out",
+        "to": "node_2",
+        "toPort": "in"
+      },
+      {
+        "from": "node_2",
+        "fromPort": "out",
+        "to": "node_3",
+        "toPort": "in"
+      },
+      {
+        "from": "node_3",
+        "fromPort": "out",
+        "to": "node_4",
+        "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "out",
+        "to": "node_5",
+        "toPort": "in"
+      },
+      {
+        "from": "node_5",
+        "fromPort": "out",
+        "to": "node_6",
+        "toPort": "in"
+      },
+      {
+        "from": "node_6",
+        "fromPort": "out",
+        "to": "node_7",
+        "toPort": "in"
+      },
+      {
+        "from": "node_7",
+        "fromPort": "out",
+        "to": "node_8",
+        "toPort": "in"
+      },
+      {
+        "from": "node_8",
+        "fromPort": "out",
+        "to": "node_9",
+        "toPort": "in"
+      },
+      {
+        "from": "node_9",
+        "fromPort": "out",
+        "to": "node_10",
+        "toPort": "in"
+      },
+      {
+        "from": "node_10",
+        "fromPort": "out",
+        "to": "node_11",
+        "toPort": "in"
+      },
+      {
+        "from": "node_11",
+        "fromPort": "out",
+        "to": "node_12",
+        "toPort": "in"
+      },
+      {
+        "from": "node_12",
+        "fromPort": "out",
+        "to": "node_13",
+        "toPort": "in"
+      },
+      {
+        "from": "node_13",
+        "fromPort": "out",
+        "to": "node_14",
+        "toPort": "in"
+      },
+      {
+        "from": "node_14",
+        "fromPort": "out",
+        "to": "node_15",
+        "toPort": "in"
+      },
+      {
+        "from": "node_15",
+        "fromPort": "out",
+        "to": "node_16",
+        "toPort": "in"
+      }
+    ]
+  },
+  "id": "calculator_demo",
+  "updated_at": "2026-01-30T12:30:04.490490"
+}

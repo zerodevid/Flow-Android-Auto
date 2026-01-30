@@ -88,13 +88,12 @@ class StepRegistry:
                 return StepResult.SUCCESS
             
             # Wait for element to appear first if wait_for is True
-            if wait_for and timeout > 0:
-                target_text = text or resource_id
-                if target_text:
-                    elem = self.portal.wait_for_text(target_text, timeout=timeout)
-                    if not elem:
-                        print(f"  ✗ Element not found: {target_text}")
-                        return StepResult.FAILED
+            # Only wait for text, not resource_id (resource_id tapping handles its own lookup)
+            if wait_for and timeout > 0 and text:
+                elem = self.portal.wait_for_text(text, timeout=timeout)
+                if not elem:
+                    print(f"  ✗ Element not found: {text}")
+                    return StepResult.FAILED
             
             # Now tap
             if resource_id:
