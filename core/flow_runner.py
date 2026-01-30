@@ -7,6 +7,12 @@ Executes steps in sequence with error handling and dynamic input
 import sys
 import time
 import json
+import os
+import subprocess
+import re
+
+# Disable proxy for localhost to avoid timeouts
+os.environ["no_proxy"] = "127.0.0.1,localhost"
 from typing import Optional, Dict, Any, Callable, List
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -291,17 +297,22 @@ class StepRegistry:
             
             time.sleep(3)  # Wait for browser to load
             
-            # Step 4: Check if data arrived automatically, otherwise perform manual paste
             def check_data():
                 try:
                     import urllib.request
                     url = f"http://127.0.0.1:5000/otp/{session_id}"
+                    print(f"    🔍 Polling: {url}") 
                     with urllib.request.urlopen(url, timeout=2) as response:
-                        data = json.loads(response.read().decode())
+                        body = response.read().decode()
+                        data = json.loads(body)
+                        # print(f"    🔍 Resp: {data}") # Too noisy if looped?
                         if data.get("status") == "ok" and data.get("otp"):
-                            return data["otp"]
-                except:
-                    pass
+                             print(f"    ✅ Data found!")
+                             return data["otp"]
+                        else:
+                             print(f"    ⚠ Not found: {data} (Session: {session_id})")
+                except Exception as e:
+                    print(f"    ⚠ Poll error: {e}")
                 return None
             
             clipboard_data = check_data()
@@ -371,6 +382,15 @@ class StepRegistry:
                 ], capture_output=True, timeout=3)
             
             time.sleep(0.5)
+            
+            # Final check with polling
+            if not clipboard_data:
+                print("  ⏳ Checking server for data (final poll)...")
+                for _ in range(5):
+                    clipboard_data = check_data()
+                    if clipboard_data:
+                        break
+                    time.sleep(1)
             
             # Step 6: Process and save clipboard data
             if clipboard_data:

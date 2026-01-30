@@ -12,6 +12,13 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
+from socketserver import ThreadingMixIn
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """Threaded HTTP Server for non-blocking concurrent requests"""
+    allow_reuse_address = True
+    daemon_threads = True
 
 
 class OTPStore:
@@ -158,81 +165,89 @@ class OTPHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            html = f'''<!DOCTYPE html>
+            
+            # Clean HTML with correct f-string escaping
+            html = f"""<!DOCTYPE html>
 <html>
-<head><title>Clipboard Capture</title></head>
-<body style="font-family: sans-serif; text-align: center; padding-top: 50px;">
+<head>
+    <title>Clipboard Capture</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body {{ font-family: sans-serif; text-align: center; padding: 20px; }}
+        .btn {{ width: 100%; padding: 15px; margin: 10px 0; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; }}
+        .btn-green {{ background: #28a745; color: white; }}
+        .btn-blue {{ background: #007bff; color: white; }}
+        .manual-area {{ border: 2px dashed #ccc; padding: 15px; margin-top: 20px; border-radius: 8px; }}
+        input {{ width: 90%; padding: 10px; font-size: 16px; margin: 10px 0; border: 1px solid #ddd; }}
+    </style>
+</head>
+<body>
     <h2>Reading clipboard...</h2>
     <p id="status">Please wait...</p>
+    
+    <!-- Automatic/User Button Area -->
+    <div id="actionArea">
+        <button class="btn btn-green" onclick="userPaste()">📋 PASTE FROM CLIPBOARD</button>
+    </div>
+
+    <!-- Manual Fallback Area -->
+    <div class="manual-area">
+        <h3 onclick="document.getElementById('manualInput').focus()" style="color: #666; font-size: 14px;">OR MANUAL PASTE:</h3>
+        <input type="text" id="manualInput" placeholder="Paste here manually">
+        <button class="btn btn-blue" onclick="sendManual()">Send Manual</button>
+    </div>
+
     <script>
-        async function captureClipboard() {{
+        // Send data to server
+        function sendData(text) {{
             const statusEl = document.getElementById("status");
+            statusEl.textContent = "Sending: " + text.substring(0, 20) + "...";
+            const url = "/clipboard?session={session_id}&data=" + encodeURIComponent(text);
+            window.location.href = url;
+        }}
+
+        // User clicked Paste Button
+        async function userPaste() {{
+            const statusEl = document.getElementById("status");
+            statusEl.textContent = "Requesting clipboard access...";
             try {{
-                // Try to read clipboard
                 const text = await navigator.clipboard.readText();
-                if (text && text.length > 0) {{
-                    statusEl.textContent = "Sending: " + text.substring(0, 20) + "...";
-                    // Send to server
-                    const url = "/clipboard?session={session_id}&data=" + encodeURIComponent(text);
-                    window.location.href = url;
+                if (text) {{
+                    sendData(text);
                 }} else {{
-                    statusEl.textContent = "Clipboard is empty. Please copy something first.";
+                    statusEl.textContent = "Clipboard is empty!";
                 }}
             }} catch (err) {{
-                statusEl.textContent = "Cannot read clipboard: " + err.message;
-                // Fallback: show input field with Button for User Gesture Trigger
-                document.body.innerHTML += `
-                    <br><br>
-                    <div id="manualArea" style="border: 2px dashed #ccc; padding: 15px; margin: 10px;">
-                        
-                        <!-- Main Button for JS Clipboard API (User Gesture) -->
-                        <button onclick="userPaste()" style="width: 100%; padding: 15px; background: #28a745; color: white; border: none; font-size: 18px; margin-bottom: 20px; font-weight: bold; border-radius: 5px;">
-                            📋 PASTE CLIPBOARD
-                        </button>
-                        
-                        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
-                        
-                        <!-- Manual Fallback -->
-                        <h3 onclick="document.getElementById('manualInput').focus()" style="color: #666; font-size: 14px;">OR MANUAL PASTE:</h3>
-                        <input type="text" id="manualInput" placeholder="Paste here manually" style="width: 90%; padding: 10px; font-size: 16px; border: 1px solid #ddd;">
-                        <br><br>
-                        <button onclick="sendManual()" style="padding: 10px 20px; background: #007bff; color: white; border: none; font-size: 16px; border-radius: 5px;">Send Manual</button>
-                    </div>
-                    
-                    <script>
-                    async function userPaste() {
-                        const statusEl = document.getElementById("status");
-                        statusEl.textContent = "Requesting clipboard access...";
-                        try {
-                            const text = await navigator.clipboard.readText();
-                            if (text && text.length > 0) {
-                                statusEl.textContent = "Sending...";
-                                window.location.href = "/clipboard?session={session_id}&data=" + encodeURIComponent(text);
-                            } else {
-                                statusEl.textContent = "Clipboard is empty!";
-                            }
-                        } catch (err) {
-                            statusEl.textContent = "Error: " + err.message;
-                            document.getElementById('manualInput').focus();
-                        }
-                    }
-                    </script>
-                `;
+                statusEl.textContent = "Error: " + err.message;
+                document.getElementById('manualInput').focus();
             }}
         }}
-        
+
+        // Manual Input Send
         function sendManual() {{
             const text = document.getElementById("manualInput").value;
             if (text) {{
-                window.location.href = "/clipboard?session={session_id}&data=" + encodeURIComponent(text);
+                sendData(text);
+            }} else {{
+                alert("Please paste text first!");
             }}
         }}
         
-        // Auto-run on load
-        captureClipboard();
+        // Auto-run attempt on load (might fail, then user needs to click button)
+        async function autoCapture() {{
+            try {{
+                const text = await navigator.clipboard.readText();
+                if (text) sendData(text);
+            }} catch (e) {{
+                // Ignore auto-read errors, wait for user interaction
+                console.log("Auto-read failed: " + e.message);
+            }}
+        }}
+        
+        autoCapture();
     </script>
 </body>
-</html>'''
+</html>"""
             self.wfile.write(html.encode())
         
         elif path == "/":
@@ -299,7 +314,7 @@ class OTPServer:
     
     def start(self):
         """Start the server in a background thread"""
-        self.server = HTTPServer((self.host, self.port), OTPHandler)
+        self.server = ThreadedHTTPServer((self.host, self.port), OTPHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         print(f"[OTP Server] Running on http://{self.host}:{self.port}")
