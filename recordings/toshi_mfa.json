@@ -1,0 +1,28 @@
+{
+  "name": "toshi_mfa",
+  "created_at": "2026-01-29T23:04:35.820674",
+  "actions": [
+    {
+      "timestamp": "2026-01-29T23:04:55.282632",
+      "action_type": "tap",
+      "element_text": "Continue",
+      "element_resource_id": null,
+      "element_class": "Button",
+      "element_index": 24,
+      "element_bounds": [
+        63,
+        2143,
+        1017,
+        2295
+      ],
+      "text_input": null,
+      "key_code": null,
+      "key_name": null,
+      "wait_for_text": null,
+      "wait_for_activity": null,
+      "package_name": "org.toshi",
+      "activity_name": "org.toshi.MainActivity",
+      "note": null
+    }
+  ]
+}

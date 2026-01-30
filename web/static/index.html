@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flow Editor - Android Automation</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>🤖 Flow Editor</h1>
+                <select id="flow-select">
+                    <option value="">New Flow</option>
+                </select>
+                <input type="text" id="flow-name" placeholder="Flow name..." value="my_flow">
+            </div>
+            <div class="header-right">
+                <div class="zoom-controls">
+                    <button onclick="zoom(0.8)" title="Zoom Out">➖</button>
+                    <button onclick="resetZoom()" title="Reset Zoom">🔍</button>
+                    <button onclick="zoom(1.2)" title="Zoom In">➕</button>
+                </div>
+                <button onclick="refreshScreen()" title="Refresh Screen">📷</button>
+                <button onclick="saveFlow()" class="btn-primary">💾 Save</button>
+                <button onclick="runFlow()" class="btn-success">▶ Run</button>
+                <button onclick="exportFlow()">📤 Export</button>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <!-- Left Sidebar: Node Palette -->
+            <aside class="sidebar left-sidebar">
+                <h3>Nodes</h3>
+                <div class="node-palette">
+                    <div class="palette-node" draggable="true" data-type="tap">👆 Tap</div>
+                    <div class="palette-node" draggable="true" data-type="type">⌨️ Type</div>
+                    <div class="palette-node" draggable="true" data-type="wait">⏳ Wait</div>
+                    <div class="palette-node" draggable="true" data-type="key">🔑 Key</div>
+                    <div class="palette-node" draggable="true" data-type="scroll">📜 Scroll</div>
+                    <div class="palette-node" draggable="true" data-type="delay">⏱️ Delay</div>
+                    <div class="palette-node" draggable="true" data-type="condition">🔀 Condition</div>
+                    <div class="palette-node" draggable="true" data-type="otp">📬 OTP</div>
+                    <div class="palette-node" draggable="true" data-type="totp">🔐 TOTP</div>
+                    <div class="palette-node" draggable="true" data-type="capture">📝 Capture</div>
+                    <div class="palette-node" draggable="true" data-type="clipboard">📋 Copy</div>
+                    <div class="palette-node" draggable="true" data-type="launch">🚀 Launch</div>
+                </div>
+
+                <h3>Device <button class="btn-small" onclick="refreshScreen()">📷 Refresh</button></h3>
+                <div id="device-info"></div>
+                <div id="elements-list" class="elements-list"></div>
+            </aside>
+
+            <!-- Canvas Area -->
+            <main class="canvas-container">
+                <svg id="connections" class="connections-svg"></svg>
+                <div id="canvas" class="canvas">
+                    <!-- Start node -->
+                    <div class="node start-node" data-id="start" style="left: 50px; top: 100px;">
+                        <div class="node-header">▶ Start</div>
+                        <div class="node-output" data-port="out"></div>
+                    </div>
+                    <!-- Nodes will be added here -->
+                </div>
+            </main>
+
+            <!-- Right Sidebar: Properties -->
+            <aside class="sidebar right-sidebar">
+                <h3>Properties</h3>
+                <div id="properties-panel">
+                    <p class="hint">Select a node to edit its properties</p>
+                </div>
+
+                <h3>Run Log</h3>
+                <div id="run-log" class="run-log">
+                    <p class="hint">Click ▶ Run to execute flow</p>
+                </div>
+
+                <button class="btn-preview" onclick="togglePreviewPanel()">📱 Show Preview</button>
+            </aside>
+        </div>
+
+        <!-- Floating Preview Panel -->
+        <div id="floating-preview" class="floating-panel" style="display: none;">
+            <div class="floating-header" id="floating-header">
+                <span>📱 Device Preview</span>
+                <div class="floating-controls">
+                    <select id="auto-refresh" onchange="setAutoRefresh(this.value)" title="Auto Refresh">
+                        <option value="0">Manual</option>
+                        <option value="1000">1s</option>
+                        <option value="2000">2s</option>
+                        <option value="5000">5s</option>
+                        <option value="10000">10s</option>
+                    </select>
+                    <button onclick="refreshScreen()" title="Refresh Now">🔄</button>
+                    <button onclick="togglePreviewPanel()" title="Close">✕</button>
+                </div>
+            </div>
+            <div class="floating-body">
+                <img id="screenshot" src="" alt="Device screenshot">
+            </div>
+            <div class="floating-resize" id="floating-resize"></div>
+        </div>
+
+        <!-- Status Bar -->
+        <footer class="status-bar">
+            <span id="status">Ready</span>
+            <span id="connection-status">🔴 Disconnected</span>
+        </footer>
+    </div>
+
+    <!-- Node Template -->
+    <template id="node-template">
+        <div class="node" draggable="true">
+            <div class="node-input" data-port="in"></div>
+            <div class="node-header">
+                <span class="node-icon"></span>
+                <span class="node-title"></span>
+                <button class="node-delete" onclick="deleteNode(this)">×</button>
+            </div>
+            <div class="node-body"></div>
+            <div class="node-output" data-port="out"></div>
+        </div>
+    </template>
+
+    <script src="/static/js/flow-editor.js"></script>
+</body>
+
+</html>

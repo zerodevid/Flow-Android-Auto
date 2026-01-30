@@ -1,0 +1,72 @@
+{
+  "name": "test",
+  "created_at": "2026-01-29T23:11:04.560676",
+  "actions": [
+    {
+      "timestamp": "2026-01-29T23:11:31.152135",
+      "action_type": "tap",
+      "element_text": "Back",
+      "element_resource_id": "nav-back-arrow",
+      "element_class": "Button",
+      "element_index": 7,
+      "element_bounds": [
+        58,
+        105,
+        121,
+        168
+      ],
+      "text_input": null,
+      "key_code": null,
+      "key_name": null,
+      "wait_for_text": null,
+      "wait_for_activity": null,
+      "package_name": "org.toshi",
+      "activity_name": "org.toshi.MainActivity",
+      "note": null
+    },
+    {
+      "timestamp": "2026-01-29T23:11:37.141920",
+      "action_type": "tap",
+      "element_text": "Back",
+      "element_resource_id": "nav-back-arrow",
+      "element_class": "Button",
+      "element_index": 7,
+      "element_bounds": [
+        58,
+        105,
+        121,
+        168
+      ],
+      "text_input": null,
+      "key_code": null,
+      "key_name": null,
+      "wait_for_text": null,
+      "wait_for_activity": null,
+      "package_name": "org.toshi",
+      "activity_name": "org.toshi.MainActivity",
+      "note": null
+    },
+    {
+      "timestamp": "2026-01-29T23:11:53.618562",
+      "action_type": "tap",
+      "element_text": "FrameLayout",
+      "element_resource_id": null,
+      "element_class": "FrameLayout",
+      "element_index": 1,
+      "element_bounds": [
+        0,
+        0,
+        1080,
+        2400
+      ],
+      "text_input": null,
+      "key_code": null,
+      "key_name": null,
+      "wait_for_text": null,
+      "wait_for_activity": null,
+      "package_name": "org.toshi",
+      "activity_name": "org.toshi.MainActivity",
+      "note": null
+    }
+  ]
+}

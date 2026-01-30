@@ -1,0 +1,80 @@
+{
+    "name": "Toshi Registration Flow",
+    "description": "Complete registration flow for Toshi app with MFA setup",
+    "data": {
+        "email": "user@example.com",
+        "username": "user123"
+    },
+    "steps": [
+        {
+            "name": "Wait for MFA Screen",
+            "action": "wait",
+            "params": {
+                "text": "Set Up Authenticator",
+                "timeout": 10
+            }
+        },
+        {
+            "name": "Tap Copy Setup Key",
+            "action": "tap",
+            "params": {
+                "text": "Copy setup key"
+            }
+        },
+        {
+            "name": "Capture TOTP Key",
+            "action": "capture",
+            "params": {
+                "resource_id": "mfa-setup-key-input",
+                "save_as": "totp_secret"
+            }
+        },
+        {
+            "name": "Tap Continue",
+            "action": "tap",
+            "params": {
+                "text": "Continue"
+            }
+        },
+        {
+            "name": "Wait for Code Entry",
+            "action": "wait",
+            "params": {
+                "text": "Enter",
+                "timeout": 5
+            }
+        },
+        {
+            "name": "Generate TOTP Code",
+            "action": "totp",
+            "params": {
+                "from_data": "totp_secret",
+                "save_as": "totp_code",
+                "min_remaining": 5
+            }
+        },
+        {
+            "name": "Type TOTP Code",
+            "action": "type",
+            "params": {
+                "from_data": "totp_code"
+            }
+        },
+        {
+            "name": "Press Enter",
+            "action": "key",
+            "params": {
+                "key": "enter"
+            }
+        },
+        {
+            "name": "Wait for Success",
+            "action": "wait",
+            "params": {
+                "text": "Success",
+                "timeout": 10
+            },
+            "optional": true
+        }
+    ]
+}
