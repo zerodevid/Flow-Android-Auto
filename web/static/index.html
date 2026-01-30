@@ -27,7 +27,8 @@
                 </div>
                 <button onclick="refreshScreen()" title="Refresh Screen">📷</button>
                 <button onclick="saveFlow()" class="btn-primary">💾 Save</button>
-                <button onclick="runFlow()" class="btn-success">▶ Run</button>
+                <button id="btn-run" onclick="runFlow()" class="btn-success">▶ Run</button>
+                <button id="btn-stop" onclick="stopRun()" class="btn-danger" style="display:none">⏹ Stop</button>
                 <button onclick="exportFlow()">📤 Export</button>
             </div>
         </header>
@@ -49,6 +50,8 @@
                     <div class="palette-node" draggable="true" data-type="capture">📝 Capture</div>
                     <div class="palette-node" draggable="true" data-type="clipboard">📋 Copy</div>
                     <div class="palette-node" draggable="true" data-type="launch">🚀 Launch</div>
+                    <div class="palette-node" draggable="true" data-type="webhook">🌐 Webhook</div>
+                    <div class="palette-node" draggable="true" data-type="data_source">📊 Data Source</div>
                 </div>
 
                 <h3>Device <button class="btn-small" onclick="refreshScreen()">📷 Refresh</button></h3>

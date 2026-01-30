@@ -112,6 +112,22 @@ const nodeTypes = {
         params: [
             { name: 'package', type: 'text', label: 'Package Name' }
         ]
+    },
+    webhook: {
+        icon: '🌐', title: 'Webhook', color: '#ec4899',
+        params: [
+            { name: 'url', type: 'text', label: 'URL' },
+            { name: 'method', type: 'select', label: 'Method', options: ['POST', 'GET', 'PUT'] },
+            { name: 'include_data', type: 'checkbox', label: 'Send Data', default: true }
+        ]
+    },
+    data_source: {
+        icon: '📊', title: 'Data Source', color: '#f97316',
+        isDataSource: true,
+        params: [
+            { name: 'columns', type: 'columns', label: 'Columns', default: ['email', 'password'] },
+            { name: 'rows', type: 'rows', label: 'Data Rows', default: [] }
+        ]
     }
 };
 
@@ -378,6 +394,15 @@ function updateNodeBody(id) {
     const body = node.querySelector('.node-body');
     const config = nodeTypes[nodeData.type];
 
+    // Special handling for data_source
+    if (config.isDataSource) {
+        const columns = nodeData.params.columns || [];
+        const rows = nodeData.params.rows || [];
+        body.innerHTML = `<span style="color:#f97316">📋 ${columns.join(', ')}</span><br>
+                          <span style="color:#888">${rows.length} rows</span>`;
+        return;
+    }
+
     // Show summary of params
     let summary = [];
     config.params.forEach(p => {
@@ -419,6 +444,13 @@ function showProperties(id) {
     }
 
     const config = nodeTypes[nodeData.type];
+
+    // Special handling for data_source node
+    if (config.isDataSource) {
+        showDataSourceProperties(id, nodeData, config);
+        return;
+    }
+
     let html = `<h4>${config.icon} ${config.title}</h4>`;
 
     config.params.forEach(p => {
@@ -446,6 +478,250 @@ function showProperties(id) {
     });
 
     panel.innerHTML = html;
+}
+
+// ==================== Data Source Table Editor ====================
+function showDataSourceProperties(id, nodeData, config) {
+    const panel = document.getElementById('properties-panel');
+
+    // Initialize defaults if not set
+    if (!nodeData.params.columns || !Array.isArray(nodeData.params.columns)) {
+        nodeData.params.columns = ['email', 'password'];
+    }
+    if (!nodeData.params.rows || !Array.isArray(nodeData.params.rows)) {
+        nodeData.params.rows = [];
+    }
+
+    const columns = nodeData.params.columns;
+    const rows = nodeData.params.rows;
+
+    let html = `<h4>${config.icon} ${config.title}</h4>`;
+
+    // Columns editor
+    html += `<div class="property-section">
+        <label>Columns</label>
+        <div class="columns-editor">
+            ${columns.map((col, i) => `
+                <div class="column-tag">
+                    <input type="text" value="${col}" 
+                           onchange="updateColumn('${id}', ${i}, this.value)"
+                           class="column-input">
+                    <button onclick="removeColumn('${id}', ${i})" title="Remove">×</button>
+                </div>
+            `).join('')}
+            <button class="btn-add-column" onclick="addColumn('${id}')">+ Column</button>
+        </div>
+    </div>`;
+
+    // Data table
+    html += `<div class="property-section">
+        <label>Data (${rows.length} rows)</label>
+        <div class="data-table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        ${columns.map(col => `<th>${col}</th>`).join('')}
+                        <th class="actions-col"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows.map((row, rowIdx) => `
+                        <tr>
+                            ${columns.map(col => `
+                                <td>
+                                    <input type="text" value="${row[col] || ''}" 
+                                           onchange="updateRowCell('${id}', ${rowIdx}, '${col}', this.value)">
+                                </td>
+                            `).join('')}
+                            <td class="actions-col">
+                                <button onclick="removeRow('${id}', ${rowIdx})" title="Delete row">🗑️</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div class="data-actions">
+            <button onclick="addRow('${id}')" class="btn-small">+ Add Row</button>
+            <button onclick="importCSV('${id}')" class="btn-small">📄 Import CSV</button>
+            <button onclick="clearAllRows('${id}')" class="btn-small btn-danger-small">🗑️ Clear</button>
+        </div>
+    </div>`;
+
+    // Hidden file input for CSV import
+    html += `<input type="file" id="csv-input-${id}" accept=".csv,.txt" 
+             onchange="handleCSVImport('${id}', this)" style="display:none">`;
+
+    panel.innerHTML = html;
+}
+
+// Column management
+function addColumn(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const newName = prompt('Column name:', `col${nodeData.params.columns.length + 1}`);
+    if (newName && newName.trim()) {
+        nodeData.params.columns.push(newName.trim());
+        showProperties(nodeId);
+        updateNodeBody(nodeId);
+    }
+}
+
+function removeColumn(nodeId, index) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData || nodeData.params.columns.length <= 1) return;
+
+    const colName = nodeData.params.columns[index];
+    nodeData.params.columns.splice(index, 1);
+
+    // Remove column data from rows
+    nodeData.params.rows.forEach(row => {
+        delete row[colName];
+    });
+
+    showProperties(nodeId);
+    updateNodeBody(nodeId);
+}
+
+function updateColumn(nodeId, index, newName) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData || !newName.trim()) return;
+
+    const oldName = nodeData.params.columns[index];
+    nodeData.params.columns[index] = newName.trim();
+
+    // Rename column in all rows
+    nodeData.params.rows.forEach(row => {
+        if (row[oldName] !== undefined) {
+            row[newName.trim()] = row[oldName];
+            delete row[oldName];
+        }
+    });
+
+    updateNodeBody(nodeId);
+}
+
+// Row management
+function addRow(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const newRow = {};
+    nodeData.params.columns.forEach(col => {
+        newRow[col] = '';
+    });
+    nodeData.params.rows.push(newRow);
+
+    showProperties(nodeId);
+    updateNodeBody(nodeId);
+}
+
+function removeRow(nodeId, rowIndex) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    nodeData.params.rows.splice(rowIndex, 1);
+    showProperties(nodeId);
+    updateNodeBody(nodeId);
+}
+
+function updateRowCell(nodeId, rowIndex, column, value) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    nodeData.params.rows[rowIndex][column] = value;
+    updateNodeBody(nodeId);
+}
+
+function clearAllRows(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    if (confirm('Clear all data rows?')) {
+        nodeData.params.rows = [];
+        showProperties(nodeId);
+        updateNodeBody(nodeId);
+    }
+}
+
+// CSV Import
+function importCSV(nodeId) {
+    document.getElementById(`csv-input-${nodeId}`).click();
+}
+
+function handleCSVImport(nodeId, input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const text = e.target.result;
+        parseCSVToNode(nodeId, text);
+    };
+    reader.readAsText(file);
+}
+
+function parseCSVToNode(nodeId, csvText) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const lines = csvText.trim().split('\n');
+    if (lines.length === 0) return;
+
+    // Parse header
+    const delimiter = lines[0].includes('\t') ? '\t' : ',';
+    const headers = lines[0].split(delimiter).map(h => h.trim().replace(/^["']|["']$/g, ''));
+
+    // Parse rows
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        const values = parseCSVLine(lines[i], delimiter);
+        if (values.length === headers.length) {
+            const row = {};
+            headers.forEach((h, idx) => {
+                row[h] = values[idx];
+            });
+            rows.push(row);
+        }
+    }
+
+    // Update node
+    nodeData.params.columns = headers;
+    nodeData.params.rows = rows;
+
+    showProperties(nodeId);
+    updateNodeBody(nodeId);
+    setStatus(`Imported ${rows.length} rows from CSV`);
+}
+
+function parseCSVLine(line, delimiter) {
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+
+        if (char === '"' && !inQuotes) {
+            inQuotes = true;
+        } else if (char === '"' && inQuotes) {
+            if (line[i + 1] === '"') {
+                current += '"';
+                i++;
+            } else {
+                inQuotes = false;
+            }
+        } else if (char === delimiter && !inQuotes) {
+            values.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    values.push(current.trim());
+
+    return values;
 }
 
 function updateParam(id, param, value) {
@@ -712,41 +988,145 @@ async function runFlow() {
 
         // Now run (no loading dialog)
         clearLog();
+        // UI State: Running
+        document.getElementById('btn-run').style.display = 'none';
+        document.getElementById('btn-stop').style.display = 'inline-block';
+
         addLog('🚀 Running flow...', 'info');
         setStatus('Running flow...');
+
+        // Remove previous status classes
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.remove('node-running', 'node-success', 'node-error');
+        });
 
         const runRes = await fetch(`/api/flows/${state.currentFlowId}/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({})
         });
-        const data = await runRes.json();
 
-        if (data.status === 'completed') {
-            const successCount = data.results.filter(r => r.result === 'success').length;
-            const totalCount = data.results.length;
+        // Reader for streaming response
+        const reader = runRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-            // Highlight nodes with animation
-            await animateExecutionResults(data.results);
+        // Get node order to map steps to nodes
+        const executionOrder = getExecutionOrder();
 
-            // Log each step result
-            data.results.forEach((step, i) => {
-                const icon = step.result === 'success' ? '✓' : '✗';
-                const cls = step.result === 'success' ? 'success' : 'error';
-                const stepName = step.step || step.action || 'Step';
-                addLog(`[${i + 1}/${totalCount}] ${stepName} ${icon}`, cls);
-            });
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
 
-            addLog(`\n✅ Complete: ${successCount}/${totalCount} steps`, 'success');
-            setStatus(`Flow completed: ${successCount}/${totalCount} steps`);
-        } else {
-            addLog(`❌ Error: ${data.error}`, 'error');
-            setStatus('Flow error: ' + data.error, true);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line
+
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                try {
+                    const msg = JSON.parse(line);
+                    handleStreamMessage(msg, executionOrder);
+                } catch (e) {
+                    console.error("Stream parse error", e, line);
+                }
+            }
         }
     } catch (err) {
         hideLoading();
         addLog(`❌ Error: ${err}`, 'error');
         setStatus('Error: ' + err, true);
+    } finally {
+        // UI State: Stopped
+        document.getElementById('btn-run').style.display = 'inline-block';
+        document.getElementById('btn-stop').style.display = 'none';
+    }
+}
+
+function stopRun() {
+    if (!state.currentFlowId) return;
+
+    addLog('🛑 Stopping...', 'warning');
+    setStatus('Stopping flow...');
+
+    fetch(`/api/flows/${state.currentFlowId}/stop`, {
+        method: 'POST'
+    })
+        .then(r => r.json())
+        .then(data => {
+            addLog('Signal sent: ' + data.status, 'info');
+        })
+        .catch(err => addLog('Error stopping: ' + err, 'error'));
+}
+
+function handleStreamMessage(msg, executionOrder) {
+    // Batch progress messages
+    if (msg.type === 'batch_row_start') {
+        const rowNum = msg.row_index + 1;
+        const total = msg.total_rows;
+        const dataPreview = Object.entries(msg.row_data || {})
+            .slice(0, 2)
+            .map(([k, v]) => `${k}: ${v}`)
+            .join(', ');
+
+        addLog(`\n📊 Row ${rowNum}/${total}: ${dataPreview}`, 'info');
+        setStatus(`Running row ${rowNum}/${total}...`);
+
+        // Reset node states for new row
+        document.querySelectorAll('.node').forEach(n => {
+            n.classList.remove('node-running', 'node-success', 'node-error');
+        });
+
+    } else if (msg.type === 'batch_row_end') {
+        const rowNum = msg.row_index + 1;
+        const icon = msg.success ? '✅' : '❌';
+        addLog(`${icon} Row ${rowNum} ${msg.success ? 'completed' : 'failed'}`, msg.success ? 'success' : 'error');
+
+    } else if (msg.type === 'batch_completed') {
+        addLog(`\n🎉 Batch Complete: ${msg.successful_rows}/${msg.total_rows} rows successful`, 'success');
+        setStatus(`Batch completed: ${msg.successful_rows}/${msg.total_rows}`);
+
+    } else if (msg.type === 'batch_stopped') {
+        addLog(`🛑 Batch stopped at row ${msg.row + 1}`, 'warning');
+
+        // Single flow messages
+    } else if (msg.type === 'step_start') {
+        const stepName = msg.step;
+        addLog(`⏳ Executing: ${stepName}...`, 'info');
+
+        // Highlight node
+        const nodeId = msg.id || executionOrder[msg.index];
+        if (nodeId) {
+            const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
+            if (nodeEl) nodeEl.classList.add('node-running');
+        }
+
+    } else if (msg.type === 'step_end') {
+        const nodeId = msg.id || executionOrder[msg.index];
+        const icon = msg.result === 'success' ? '✓' : '✗';
+        const cls = msg.result === 'success' ? 'success' : 'error';
+        const stepName = msg.step;
+
+        // Update Log
+        addLog(`${stepName} ${icon}`, cls);
+
+        // Update Node
+        if (nodeId) {
+            const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
+            if (nodeEl) {
+                nodeEl.classList.remove('node-running');
+                nodeEl.classList.add(msg.result === 'success' ? 'node-success' : 'node-error');
+            }
+        }
+
+    } else if (msg.type === 'completed') {
+        const successCount = msg.results.filter(r => r.result === 'success').length;
+        const totalCount = msg.results.length;
+        addLog(`\n✅ Flow Finished: ${successCount}/${totalCount}`, 'success');
+        setStatus(`Flow completed`);
+
+    } else if (msg.type === 'error') {
+        addLog(`❌ Server Error: ${msg.error}`, 'error');
     }
 }
 

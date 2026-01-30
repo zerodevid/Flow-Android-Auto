@@ -128,28 +128,85 @@ def delete_flow(flow_id):
 
 # ==================== Flow Execution ====================
 
+# Global active runners
+ACTIVE_RUNNERS = {}  # flow_id -> FlowRunner instance
+
 @app.route('/api/flows/<flow_id>/run', methods=['POST'])
 def run_flow(flow_id):
-    """Execute a flow"""
+    """Execute a flow with streaming updates (supports batch mode with data_source)"""
     path = FLOWS_DIR / f'{flow_id}.json'
     if not path.exists():
         return jsonify({'error': 'Flow not found'}), 404
     
     data = request.json or {}
-    session_id = data.get('session_id', 'default')
-    initial_data = data.get('data', {})
+    session_prefix = data.get('session_id', flow_id)
     
-    try:
-        runner = FlowRunner(get_portal())
-        ctx = runner.run_file(str(path), session_id, initial_data)
-        
-        return jsonify({
-            'status': 'completed',
-            'results': ctx.step_results,
-            'data': ctx.data
-        })
-    except Exception as e:
-        return jsonify({'status': 'error', 'error': str(e)}), 500
+    # Queue for execution events
+    from queue import Queue, Empty
+    event_queue = Queue()
+    
+    def on_progress(event):
+        event_queue.put(event)
+    
+    def run_wrapper():
+        try:
+            runner = FlowRunner(get_portal())
+            ACTIVE_RUNNERS[flow_id] = runner
+            
+            # Use run_file_batch which handles data_source automatically
+            results = runner.run_file_batch(str(path), session_prefix, callback=on_progress)
+            
+            # Send final batch results
+            total_success = sum(
+                1 for ctx in results 
+                if all(r["result"] == "success" for r in ctx.step_results)
+            )
+            
+            event_queue.put({
+                "type": "batch_completed",
+                "total_rows": len(results),
+                "successful_rows": total_success,
+                "all_data": [ctx.data for ctx in results]
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            event_queue.put({"type": "error", "error": str(e)})
+        finally:
+            if flow_id in ACTIVE_RUNNERS:
+                del ACTIVE_RUNNERS[flow_id]
+            event_queue.put(None)  # Signal end
+    
+    # Start thread
+    t = threading.Thread(target=run_wrapper, daemon=True)
+    t.start()
+    
+    def generate():
+        while True:
+            try:
+                # Wait for data
+                item = event_queue.get(timeout=120)  # 2min timeout for OTP/long waits
+                if item is None:
+                    break
+                yield json.dumps(item) + "\n"
+                
+            except Empty:
+                # KEEPALIVE
+                yield "{}\n"
+            except Exception as e:
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+                break
+    
+    return app.response_class(generate(), mimetype='application/x-ndjson')
+
+
+@app.route('/api/flows/<flow_id>/stop', methods=['POST'])
+def stop_flow(flow_id):
+    """Stop a running flow"""
+    if flow_id in ACTIVE_RUNNERS:
+        ACTIVE_RUNNERS[flow_id].stop()
+        return jsonify({'status': 'stopping'})
+    return jsonify({'status': 'not_running'})
 
 
 # ==================== Device Interaction ====================

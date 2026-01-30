@@ -4,59 +4,11 @@
   "data": {},
   "steps": [
     {
-      "name": "Tap: [23]",
+      "name": "Tap: [7]",
       "action": "tap",
       "params": {
-        "index": 23,
-        "timeout": 10
-      }
-    },
-    {
-      "name": "Tap: [25]",
-      "action": "tap",
-      "params": {
-        "index": 25,
-        "timeout": 10
-      }
-    },
-    {
-      "name": "Tap: [14]",
-      "action": "tap",
-      "params": {
-        "index": 14,
-        "timeout": 10
-      }
-    },
-    {
-      "name": "Copy: [22]",
-      "action": "clipboard",
-      "params": {
-        "index": 22,
-        "save_as": "totp_secret"
-      }
-    },
-    {
-      "name": "Tap: Continue",
-      "action": "tap",
-      "params": {
-        "text": "Continue",
-        "timeout": 10
-      }
-    },
-    {
-      "name": "TOTP: totp",
-      "action": "totp",
-      "params": {
-        "from_data": "totp_secret",
-        "save_as": "totp"
-      }
-    },
-    {
-      "name": "Type:",
-      "action": "type",
-      "params": {
-        "clear": true,
-        "from_data": "totp"
+        "timeout": 10,
+        "index": 7
       }
     }
   ],
@@ -70,130 +22,26 @@
         "params": {}
       },
       {
-        "id": "node_3",
-        "params": {
-          "index": 23,
-          "timeout": 10
-        },
+        "id": "node_1",
         "type": "tap",
-        "x": 65,
-        "y": 199
-      },
-      {
-        "id": "node_4",
+        "x": 261,
+        "y": 214,
         "params": {
-          "save_as": "totp"
-        },
-        "type": "totp",
-        "x": 63,
-        "y": 611
-      },
-      {
-        "id": "node_5",
-        "params": {
-          "index": 25,
-          "timeout": 10
-        },
-        "type": "tap",
-        "x": 300,
-        "y": 215
-      },
-      {
-        "id": "node_6",
-        "params": {
-          "index": 14,
-          "timeout": 10
-        },
-        "type": "tap",
-        "x": 302,
-        "y": 327
-      },
-      {
-        "id": "node_8",
-        "params": {
-          "index": 22,
-          "save_as": "totp_secret"
-        },
-        "type": "clipboard",
-        "x": 252,
-        "y": 465
-      },
-      {
-        "id": "node_9",
-        "params": {
-          "from_data": "totp_secret",
-          "save_as": "totp"
-        },
-        "type": "totp",
-        "x": 647,
-        "y": 416
-      },
-      {
-        "id": "node_10",
-        "params": {
-          "clear": true,
-          "from_data": "totp"
-        },
-        "type": "type",
-        "x": 705,
-        "y": 632
-      },
-      {
-        "id": "node_11",
-        "params": {
-          "text": "Continue",
-          "timeout": 10
-        },
-        "type": "tap",
-        "x": 465,
-        "y": 662
+          "timeout": 10,
+          "index": 7,
+          "text": ""
+        }
       }
     ],
     "connections": [
       {
         "from": "start",
         "fromPort": "out",
-        "to": "node_3",
-        "toPort": "in"
-      },
-      {
-        "from": "node_3",
-        "fromPort": "out",
-        "to": "node_5",
-        "toPort": "in"
-      },
-      {
-        "from": "node_5",
-        "fromPort": "out",
-        "to": "node_6",
-        "toPort": "in"
-      },
-      {
-        "from": "node_6",
-        "fromPort": "out",
-        "to": "node_8",
-        "toPort": "in"
-      },
-      {
-        "from": "node_9",
-        "fromPort": "out",
-        "to": "node_10",
-        "toPort": "in"
-      },
-      {
-        "from": "node_8",
-        "fromPort": "out",
-        "to": "node_11",
-        "toPort": "in"
-      },
-      {
-        "from": "node_11",
-        "fromPort": "out",
-        "to": "node_9",
+        "to": "node_1",
         "toPort": "in"
       }
     ]
   },
   "id": "my_flow",
-  "updated_at": "2026-01-30T08:48:54.298871"
+  "updated_at": "2026-01-30T10:52:12.688026"
 }

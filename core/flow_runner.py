@@ -438,6 +438,56 @@ class StepRegistry:
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
+        # Webhook action for integration
+        def action_webhook(ctx: StepContext, url: str, method: str = "POST", 
+                          headers: Dict = None, include_data: bool = True,
+                          payload: Dict = None, timeout: float = 10, **kwargs) -> StepResult:
+            print(f"  🌐 Webhook: {method} {url}")
+            
+            try:
+                import urllib.request
+                import urllib.error
+                
+                # Prepare data
+                data_to_send = {}
+                if include_data:
+                    data_to_send.update(ctx.data)
+                
+                if payload:
+                    data_to_send.update(payload)
+                
+                # Prepare body
+                json_data = json.dumps(data_to_send).encode('utf-8')
+                
+                # Prepare headers
+                req_headers = {
+                    "Content-Type": "application/json",
+                    "User-Agent": "AutoRegister/1.0"
+                }
+                if headers:
+                    req_headers.update(headers)
+                
+                # Create request
+                req = urllib.request.Request(
+                    url, 
+                    data=json_data if method in ["POST", "PUT"] else None,
+                    headers=req_headers,
+                    method=method
+                )
+                
+                # Execute
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    status = response.status
+                    print(f"  ✓ Webhook success: {status}")
+                    return StepResult.SUCCESS
+                    
+            except urllib.error.HTTPError as e:
+                print(f"  ✗ Webhook HTTP error: {e.code} {e.reason}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ Webhook error: {e}")
+                return StepResult.FAILED
+
         # Register all
         self._actions = {
             "tap": action_tap,
@@ -453,6 +503,7 @@ class StepRegistry:
             "delay": action_delay,
             "launch": action_launch,
             "check": action_check,
+            "webhook": action_webhook,
         }
     
     def register(self, name: str, action: Callable):
@@ -475,9 +526,16 @@ class FlowRunner:
     def __init__(self, portal: Optional[DroidrunPortal] = None):
         self.portal = portal or connect()
         self.registry = StepRegistry(self.portal)
+        self._stop_flag = False
+        
+    def stop(self):
+        """Signal the runner to stop"""
+        print("🛑 Stop signal received")
+        self._stop_flag = True
     
     def run(self, steps: List[Dict], session_id: str = "default",
-            initial_data: Optional[Dict] = None) -> StepContext:
+            initial_data: Optional[Dict] = None,
+            callback: Optional[Callable[[Dict], None]] = None) -> StepContext:
         """
         Run a flow
         
@@ -485,10 +543,12 @@ class FlowRunner:
             steps: List of step configurations
             session_id: Session ID for OTP
             initial_data: Initial data to set in context
+            callback: Function to call with progress updates
         
         Returns:
             StepContext with results
         """
+        self._stop_flag = False
         ctx = StepContext(
             portal=self.portal,
             session_id=session_id,
@@ -501,6 +561,13 @@ class FlowRunner:
         print(f"{'='*60}\n")
         
         for i, step_dict in enumerate(steps, 1):
+            # Check stop flag
+            if self._stop_flag:
+                print("🛑 Flow stopped by user")
+                if callback:
+                    callback({"type": "stopped", "step": "Flow stopped"})
+                break
+
             step = StepConfig(
                 name=step_dict.get("name", f"Step {i}"),
                 action=step_dict.get("action", ""),
@@ -513,6 +580,15 @@ class FlowRunner:
             )
             
             print(f"[{i}/{len(steps)}] {step.name}")
+            
+            # Notify start
+            if callback:
+                callback({
+                    "type": "step_start",
+                    "index": i-1, # 0-based for array access in JS
+                    "step": step.name,
+                    "id": step_dict.get("id") # Pass original ID if available
+                })
             
             # Wait before
             if step.wait_before > 0:
@@ -531,12 +607,26 @@ class FlowRunner:
                         time.sleep(step.retry_delay)
             
             # Record result
-            ctx.step_results.append({
+            result_data = {
                 "step": step.name,
                 "action": step.action,
                 "result": result.value,
                 "timestamp": datetime.now().isoformat()
-            })
+            }
+            if step_dict.get("id"):
+                result_data["id"] = step_dict.get("id")
+            
+            ctx.step_results.append(result_data)
+            
+            # Notify end
+            if callback:
+                callback({
+                    "type": "step_end",
+                    "index": i-1,
+                    "step": step.name,
+                    "result": result.value,
+                    "id": step_dict.get("id")
+                })
             
             # Handle failure
             if result == StepResult.FAILED:
@@ -559,8 +649,71 @@ class FlowRunner:
         
         return ctx
     
+    def run_batch(self, steps: List[Dict], data_rows: List[Dict],
+                  session_prefix: str = "batch",
+                  callback: Optional[Callable[[Dict], None]] = None) -> List[StepContext]:
+        """
+        Run the same flow multiple times with different data rows
+        
+        Args:
+            steps: List of step configurations (without data_source step)
+            data_rows: List of data dicts, one per iteration
+            session_prefix: Prefix for session IDs
+            callback: Progress callback
+        
+        Returns:
+            List of StepContext for each row
+        """
+        results = []
+        total_rows = len(data_rows)
+        
+        for row_idx, row_data in enumerate(data_rows):
+            if self._stop_flag:
+                print("🛑 Batch stopped by user")
+                if callback:
+                    callback({"type": "batch_stopped", "row": row_idx})
+                break
+            
+            session_id = f"{session_prefix}_{row_idx}"
+            
+            # Notify batch progress
+            if callback:
+                callback({
+                    "type": "batch_row_start",
+                    "row_index": row_idx,
+                    "total_rows": total_rows,
+                    "row_data": row_data
+                })
+            
+            print(f"\n{'='*60}")
+            print(f"🔄 Batch [{row_idx + 1}/{total_rows}]")
+            print(f"   Data: {row_data}")
+            print(f"{'='*60}")
+            
+            # Run flow with this row's data
+            ctx = self.run(steps, session_id, initial_data=row_data, callback=callback)
+            results.append(ctx)
+            
+            # Notify batch row complete
+            if callback:
+                success_count = sum(1 for r in ctx.step_results if r["result"] == "success")
+                callback({
+                    "type": "batch_row_end",
+                    "row_index": row_idx,
+                    "total_rows": total_rows,
+                    "success": success_count == len(ctx.step_results),
+                    "results": ctx.step_results
+                })
+        
+        print(f"\n{'='*60}")
+        print(f"✅ Batch complete: {len(results)}/{total_rows} rows processed")
+        print(f"{'='*60}\n")
+        
+        return results
+    
     def run_file(self, filepath: str, session_id: str = "default",
-                 initial_data: Optional[Dict] = None) -> StepContext:
+                 initial_data: Optional[Dict] = None,
+                 callback: Optional[Callable[[Dict], None]] = None) -> StepContext:
         """Run flow from JSON file"""
         with open(filepath) as f:
             flow = json.load(f)
@@ -569,7 +722,42 @@ class FlowRunner:
         data = {**(flow.get("data", {}) if isinstance(flow, dict) else {}), 
                 **(initial_data or {})}
         
-        return self.run(steps, session_id, data)
+        return self.run(steps, session_id, data, callback)
+    
+    def run_file_batch(self, filepath: str, session_prefix: str = "batch",
+                       callback: Optional[Callable[[Dict], None]] = None) -> List[StepContext]:
+        """
+        Run flow from JSON file with batch data from data_source step
+        
+        Automatically detects data_source step and loops through rows
+        """
+        with open(filepath) as f:
+            flow = json.load(f)
+        
+        steps = flow.get("steps", flow) if isinstance(flow, dict) else flow
+        
+        # Find and extract data_source step
+        data_rows = []
+        filtered_steps = []
+        
+        for step in steps:
+            if step.get("action") == "data_source":
+                # Extract rows from data_source
+                params = step.get("params", {})
+                rows = params.get("rows", [])
+                if rows:
+                    data_rows = rows
+                    print(f"📊 Found data_source with {len(rows)} rows")
+            else:
+                filtered_steps.append(step)
+        
+        if data_rows:
+            # Run batch mode
+            return self.run_batch(filtered_steps, data_rows, session_prefix, callback)
+        else:
+            # No data source, run single
+            ctx = self.run(filtered_steps, session_prefix, callback=callback)
+            return [ctx]
 
 
 def create_flow_template(filepath: str):

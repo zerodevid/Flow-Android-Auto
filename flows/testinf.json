@@ -1,0 +1,263 @@
+{
+  "name": "te",
+  "description": "Created with Flow Editor",
+  "data": {},
+  "steps": [
+    {
+      "name": "Data Source:",
+      "action": "data_source",
+      "params": {
+        "columns": [
+          "pkkey"
+        ],
+        "rows": [
+          {
+            "pkkey": "cactus diagram chalk exact rate pool garment together rural exhaust deal bone hedgehog that iron struggle motion error brother pencil apple page beef sniff"
+          },
+          {
+            "pkkey": "truth gentle hammer media exist fatigue tilt cancel feel neither student indicate version pact advice merit act bounce tiger suggest vessel rough bicycle rack"
+          },
+          {
+            "pkkey": "aisle champion beauty certain gold foster organ patrol minimum stamp flee solid credit wheat shuffle focus treat nurse script alert ripple ostrich mountain provide"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Tap: Sign in",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "text": "Sign in"
+      }
+    },
+    {
+      "name": "Tap: Use recovery phrase",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "text": "Use recovery phrase"
+      }
+    },
+    {
+      "name": "Type:",
+      "action": "type",
+      "params": {
+        "clear": true,
+        "from_data": "pkkey"
+      }
+    },
+    {
+      "name": "Tap: [18]",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "index": 18
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Tap: ImageView",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "text": "ImageView",
+        "index": 55
+      }
+    },
+    {
+      "name": "Tap: [27]",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "index": 27
+      }
+    },
+    {
+      "name": "Tap: [6]",
+      "action": "tap",
+      "params": {
+        "timeout": 10,
+        "index": 6
+      }
+    }
+  ],
+  "_editor": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "x": 50,
+        "y": 100,
+        "params": {}
+      },
+      {
+        "id": "node_1",
+        "type": "data_source",
+        "x": 187,
+        "y": 242,
+        "params": {
+          "columns": [
+            "pkkey"
+          ],
+          "rows": [
+            {
+              "pkkey": "cactus diagram chalk exact rate pool garment together rural exhaust deal bone hedgehog that iron struggle motion error brother pencil apple page beef sniff"
+            },
+            {
+              "pkkey": "truth gentle hammer media exist fatigue tilt cancel feel neither student indicate version pact advice merit act bounce tiger suggest vessel rough bicycle rack"
+            },
+            {
+              "pkkey": "aisle champion beauty certain gold foster organ patrol minimum stamp flee solid credit wheat shuffle focus treat nurse script alert ripple ostrich mountain provide"
+            }
+          ]
+        }
+      },
+      {
+        "id": "node_2",
+        "type": "type",
+        "x": 296,
+        "y": 574,
+        "params": {
+          "clear": true,
+          "from_data": "pkkey",
+          "text": ""
+        }
+      },
+      {
+        "id": "node_3",
+        "type": "tap",
+        "x": 407,
+        "y": 245,
+        "params": {
+          "timeout": 10,
+          "text": "Sign in"
+        }
+      },
+      {
+        "id": "node_4",
+        "type": "tap",
+        "x": 608,
+        "y": 342,
+        "params": {
+          "timeout": 10,
+          "text": "Use recovery phrase"
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "tap",
+        "x": 662,
+        "y": 579,
+        "params": {
+          "timeout": 10,
+          "index": 18
+        }
+      },
+      {
+        "id": "node_6",
+        "type": "delay",
+        "x": 966,
+        "y": 269,
+        "params": {
+          "seconds": 1
+        }
+      },
+      {
+        "id": "node_7",
+        "type": "tap",
+        "x": 972,
+        "y": 466,
+        "params": {
+          "timeout": 10,
+          "text": "ImageView",
+          "index": 55
+        }
+      },
+      {
+        "id": "node_8",
+        "type": "tap",
+        "x": 1055,
+        "y": 625,
+        "params": {
+          "timeout": 10,
+          "index": 27
+        }
+      },
+      {
+        "id": "node_9",
+        "type": "tap",
+        "x": 868,
+        "y": 770,
+        "params": {
+          "timeout": 10,
+          "index": 6
+        }
+      }
+    ],
+    "connections": [
+      {
+        "from": "start",
+        "fromPort": "out",
+        "to": "node_1",
+        "toPort": "in"
+      },
+      {
+        "from": "node_1",
+        "fromPort": "out",
+        "to": "node_3",
+        "toPort": "in"
+      },
+      {
+        "from": "node_3",
+        "fromPort": "out",
+        "to": "node_4",
+        "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "out",
+        "to": "node_2",
+        "toPort": "in"
+      },
+      {
+        "from": "node_2",
+        "fromPort": "out",
+        "to": "node_5",
+        "toPort": "in"
+      },
+      {
+        "from": "node_5",
+        "fromPort": "out",
+        "to": "node_6",
+        "toPort": "in"
+      },
+      {
+        "from": "node_6",
+        "fromPort": "out",
+        "to": "node_7",
+        "toPort": "in"
+      },
+      {
+        "from": "node_7",
+        "fromPort": "out",
+        "to": "node_8",
+        "toPort": "in"
+      },
+      {
+        "from": "node_8",
+        "fromPort": "out",
+        "to": "node_9",
+        "toPort": "in"
+      }
+    ]
+  },
+  "id": "testinf",
+  "updated_at": "2026-01-30T11:22:48.901602"
+}
