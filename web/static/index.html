@@ -42,6 +42,7 @@
                     <div class="palette-node" draggable="true" data-type="tap">👆 Tap</div>
                     <div class="palette-node" draggable="true" data-type="type">⌨️ Type</div>
                     <div class="palette-node" draggable="true" data-type="wait">⏳ Wait</div>
+                    <div class="palette-node" draggable="true" data-type="wait_gone">👻 Wait Gone</div>
                     <div class="palette-node" draggable="true" data-type="key">🔑 Key</div>
                     <div class="palette-node" draggable="true" data-type="scroll">📜 Scroll</div>
                     <div class="palette-node" draggable="true" data-type="delay">⏱️ Delay</div>
@@ -51,8 +52,10 @@
                     <div class="palette-node" draggable="true" data-type="capture">📝 Capture</div>
                     <div class="palette-node" draggable="true" data-type="clipboard">📋 Copy</div>
                     <div class="palette-node" draggable="true" data-type="launch">🚀 Launch</div>
-                    <div class="palette-node" draggable="true" data-type="webhook">🌐 Webhook</div>
+                    <div class="palette-node" draggable="true" data-type="http_request">📡 HTTP Request</div>
+                    <div class="palette-node" draggable="true" data-type="webhook">🌐 Webhook Trigger</div>
                     <div class="palette-node" draggable="true" data-type="shell">📟 Shell</div>
+                    <div class="palette-node" draggable="true" data-type="fingerprint">👆 Fingerprint</div>
                     <div class="palette-node" draggable="true" data-type="close">🛑 Close App</div>
                     <div class="palette-node" draggable="true" data-type="clear_data">🧹 Clear Data</div>
                     <div class="palette-node" draggable="true" data-type="ask_ai">🤖 Ask AI</div>
@@ -103,6 +106,10 @@
             <div class="floating-header" id="floating-header">
                 <span>📱 Device Preview</span>
                 <div class="floating-controls">
+                    <select id="preview-mode" onchange="setPreviewMode(this.value)" title="Preview Mode">
+                        <option value="screenshot">📷 Screenshot</option>
+                        <option value="scrcpy">🎥 Scrcpy</option>
+                    </select>
                     <select id="auto-refresh" onchange="setAutoRefresh(this.value)" title="Auto Refresh">
                         <option value="0">Manual</option>
                         <option value="1000">1s</option>
@@ -114,8 +121,20 @@
                     <button onclick="togglePreviewPanel()" title="Close">✕</button>
                 </div>
             </div>
-            <div class="floating-body">
+            <!-- Screenshot Mode -->
+            <div id="preview-screenshot" class="floating-body">
                 <img id="screenshot" src="" alt="Device screenshot">
+            </div>
+            <!-- Scrcpy Mode -->
+            <div id="preview-scrcpy" class="floating-body" style="display: none; padding: 0;">
+                <div class="scrcpy-url-bar">
+                    <input type="text" id="scrcpy-url"
+                        placeholder="Scrcpy Web URL (e.g., https://nicholasday.github.io/nicholasday.github.io/scrcpy-web/)"
+                        value="https://nicholasday.github.io/nicholasday.github.io/scrcpy-web/"
+                        onkeydown="if(event.key==='Enter') loadScrcpy()">
+                    <button onclick="loadScrcpy()" title="Load">▶</button>
+                </div>
+                <iframe id="scrcpy-iframe" src="" frameborder="0" allow="autoplay; clipboard-write"></iframe>
             </div>
             <div class="floating-resize" id="floating-resize"></div>
         </div>

@@ -47,6 +47,13 @@ const nodeTypes = {
             { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 10 }
         ]
     },
+    wait_gone: {
+        icon: '👻', title: 'Wait Gone', color: '#94a3b8',
+        params: [
+            { name: 'text', type: 'text', label: 'Wait Until Gone' },
+            { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 30 }
+        ]
+    },
     key: {
         icon: '🔑', title: 'Key', color: '#10b981',
         params: [
@@ -101,6 +108,7 @@ const nodeTypes = {
         params: [
             { name: 'resource_id', type: 'text', label: 'Resource ID' },
             { name: 'text', type: 'text', label: 'Contains Text' },
+            { name: 'index', type: 'number', label: 'Index' },
             { name: 'save_as', type: 'text', label: 'Save As' }
         ]
     },
@@ -119,12 +127,22 @@ const nodeTypes = {
             { name: 'package', type: 'text', label: 'Package Name' }
         ]
     },
-    webhook: {
-        icon: '🌐', title: 'Webhook', color: '#ec4899',
+    http_request: {
+        icon: '📡', title: 'HTTP Request', color: '#ec4899',
         params: [
             { name: 'url', type: 'text', label: 'URL' },
-            { name: 'method', type: 'select', label: 'Method', options: ['POST', 'GET', 'PUT'] },
-            { name: 'include_data', type: 'checkbox', label: 'Send Data', default: true }
+            { name: 'method', type: 'select', label: 'Method', options: ['POST', 'GET', 'PUT', 'DELETE'] },
+            { name: 'include_data', type: 'checkbox', label: 'Send Data', default: true },
+            { name: 'save_response', type: 'text', label: 'Save Response As' }
+        ]
+    },
+    webhook: {
+        icon: '🌐', title: 'Webhook Trigger', color: '#6366f1',
+        isTrigger: true,
+        params: [
+            { name: 'path', type: 'text', label: 'Webhook Path', default: 'my-webhook' },
+            { name: 'method', type: 'select', label: 'HTTP Method', options: ['POST', 'GET', 'PUT', 'ALL'], default: 'POST' },
+            { name: 'response_mode', type: 'select', label: 'Response', options: ['immediate', 'wait_complete'], default: 'immediate' }
         ]
     },
     data_source: {
@@ -162,6 +180,13 @@ const nodeTypes = {
         icon: '📟', title: 'Shell', color: '#374151',
         params: [
             { name: 'command', type: 'text', label: 'ADB Shell Command' }
+        ]
+    },
+    fingerprint: {
+        icon: '👆', title: 'Fingerprint', color: '#0ea5e9',
+        params: [
+            { name: 'finger_id', type: 'select', label: 'Finger', options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], default: '1' },
+            { name: 'delay', type: 'number', label: 'Delay Before (sec)', default: 0.5 }
         ]
     }
 };
@@ -438,12 +463,19 @@ function updateNodeBody(id) {
         return;
     }
 
-    // Show summary of params
+    // Helper to truncate text
+    const truncate = (str, maxLen = 30) => {
+        if (!str) return '';
+        str = String(str);
+        return str.length > maxLen ? str.substring(0, maxLen) + '...' : str;
+    };
+
+    // Show summary of params (truncated)
     let summary = [];
     config.params.forEach(p => {
         const val = nodeData.params[p.name];
         if (val) {
-            summary.push(`${p.label}: ${val}`);
+            summary.push(`${p.label}: ${truncate(val)}`);
         }
     });
 
@@ -486,6 +518,12 @@ function showProperties(id) {
         return;
     }
 
+    // Special handling for webhook trigger node
+    if (config.isTrigger && nodeData.type === 'webhook') {
+        showWebhookProperties(id, nodeData, config);
+        return;
+    }
+
     let html = `<h4>${config.icon} ${config.title}</h4>`;
 
     config.params.forEach(p => {
@@ -518,15 +556,180 @@ function showProperties(id) {
 
     // Add Run button for testing single node
     html += `
-        <div class="property-actions">
-            <button class="btn-run-node" onclick="runSingleNode('${id}')">
-                <span class="run-icon">▶</span> Run
+        <div class="property-actions" style="display:flex; gap:8px;">
+            <button class="btn-run-node" onclick="runSingleNode('${id}')" title="Test this node only">
+                <span class="run-icon">▶</span> Test
+            </button>
+            <button class="btn-run-node" onclick="runFlow('${id}')" style="background:#059669; border-color:#059669;" title="Resume complete flow from here">
+                <span class="run-icon">⏩</span> Resume
             </button>
         </div>
         <div id="run-result-${id}" class="run-result"></div>
     `;
 
     panel.innerHTML = html;
+}
+
+// Special properties panel for Webhook Trigger node
+function showWebhookProperties(id, nodeData, config) {
+    const panel = document.getElementById('properties-panel');
+    const webhookPath = nodeData.params.path || 'my-webhook';
+    const baseUrl = window.location.origin;
+    const webhookUrl = `${baseUrl}/webhook/${webhookPath}`;
+
+    let html = `<h4>${config.icon} ${config.title}</h4>`;
+
+    // Webhook URL display (readonly)
+    html += `
+        <div class="webhook-url-section">
+            <label>Webhook URL</label>
+            <div class="webhook-url-display">
+                <input type="text" id="webhook-url-${id}" value="${webhookUrl}" readonly 
+                       style="font-family: monospace; font-size: 11px;">
+                <button onclick="copyWebhookUrl('${id}')" title="Copy URL" class="btn-copy">📋</button>
+            </div>
+            <small class="hint">Panggil URL ini dari luar untuk trigger flow</small>
+        </div>
+    `;
+
+    // Normal params
+    config.params.forEach(p => {
+        const value = nodeData.params[p.name] ?? p.default ?? '';
+        html += `<div class="property-row">
+            <label>${p.label}</label>`;
+
+        if (p.type === 'select') {
+            html += `<select onchange="updateWebhookParam('${id}', '${p.name}', this.value)">
+                ${p.options.map(o => `<option value="${o}" ${value === o ? 'selected' : ''}>${o}</option>`).join('')}
+            </select>`;
+        } else {
+            html += `<input type="text" value="${value}" 
+                     onchange="updateWebhookParam('${id}', '${p.name}', this.value)"
+                     placeholder="${p.default || ''}">`;
+        }
+
+        html += `</div>`;
+    });
+
+    // Response mode explanation
+    const responseMode = nodeData.params.response_mode || 'immediate';
+    html += `
+        <div class="webhook-info">
+            <h5>📖 Cara Kerja:</h5>
+            <ul>
+                <li><strong>immediate</strong>: Response langsung, flow jalan di background</li>
+                <li><strong>wait_complete</strong>: Tunggu flow selesai, return hasil</li>
+            </ul>
+        </div>
+    `;
+
+    // Test webhook button
+    html += `
+        <div class="property-actions">
+            <button class="btn-run-node" onclick="testWebhook('${id}')" title="Test webhook dengan sample data">
+                <span class="run-icon">🧪</span> Test Webhook
+            </button>
+        </div>
+        <div id="run-result-${id}" class="run-result"></div>
+    `;
+
+    panel.innerHTML = html;
+}
+
+function updateWebhookParam(id, key, value) {
+    updateParam(id, key, value);
+    // Refresh panel to update URL display if path changed
+    if (key === 'path') {
+        setTimeout(() => showProperties(id), 50);
+    }
+}
+
+function copyWebhookUrl(id) {
+    const input = document.getElementById(`webhook-url-${id}`);
+    if (input) {
+        input.select();
+        document.execCommand('copy');
+        setStatus('Webhook URL copied to clipboard!');
+    }
+}
+
+async function testWebhook(id) {
+    const nodeData = state.nodes.get(id);
+    if (!nodeData) return;
+
+    const webhookPath = nodeData.params.path || 'my-webhook';
+    const method = nodeData.params.method || 'POST';
+    const webhookUrl = `/webhook/${webhookPath}`;
+
+    const resultDiv = document.getElementById(`run-result-${id}`);
+    if (resultDiv) {
+        resultDiv.innerHTML = '<span class="result-pending">💾 Saving flow first...</span>';
+        resultDiv.className = 'run-result pending';
+    }
+
+    try {
+        // Auto-save flow first (webhook must be registered)
+        const flowName = document.getElementById('flow-name').value || 'my_flow';
+        const flow = buildFlowJSON();
+        flow.name = flowName;
+        flow.id = state.currentFlowId || flowName.toLowerCase().replace(/\s+/g, '_');
+
+        const saveRes = await fetch(`/api/flows/${flow.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(flow)
+        });
+
+        if (!saveRes.ok) {
+            throw new Error('Failed to save flow');
+        }
+
+        state.currentFlowId = flow.id;
+
+        if (resultDiv) {
+            resultDiv.innerHTML = '<span class="result-pending">⏳ Testing webhook...</span>';
+        }
+
+        // Now test the webhook
+        const options = {
+            method: method === 'ALL' ? 'POST' : method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+
+        if (['POST', 'PUT'].includes(options.method)) {
+            options.body = JSON.stringify({
+                test: true,
+                message: 'Test from Flow Editor',
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        const response = await fetch(webhookUrl, options);
+        const data = await response.json();
+
+        if (response.ok) {
+            if (resultDiv) {
+                resultDiv.innerHTML = `✅ Webhook responded!<br><small>${JSON.stringify(data)}</small>`;
+                resultDiv.className = 'run-result success';
+            }
+            setStatus('Webhook test successful!');
+        } else {
+            if (resultDiv) {
+                // More helpful error message
+                let errorMsg = data.error || response.statusText;
+                if (errorMsg === 'Webhook not found') {
+                    errorMsg = 'Webhook not found. Make sure flow is saved and has a Webhook Trigger node.';
+                }
+                resultDiv.innerHTML = `❌ ${errorMsg}`;
+                resultDiv.className = 'run-result error';
+            }
+        }
+    } catch (e) {
+        if (resultDiv) {
+            resultDiv.innerHTML = `❌ Error: ${e.message}`;
+            resultDiv.className = 'run-result error';
+        }
+    }
 }
 
 // ==================== Run Single Node ====================
@@ -667,7 +870,14 @@ function showDataSourceProperties(id, nodeData, config) {
 
     // Data table
     html += `<div class="property-section">
-        <label>Data (${rows.length} rows)</label>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <label style="margin:0;">Data (${rows.length} rows)</label>
+            <div style="font-size:0.8rem;">
+                Resume from #<input type="number" value="${nodeData.params.start_index || 0}" 
+                       onchange="updateParam('${id}', 'start_index', parseInt(this.value))"
+                       style="width:50px; padding:2px; margin-left:4px;">
+            </div>
+        </div>
         <div class="data-table-container">
             <table class="data-table">
                 <thead>
@@ -676,8 +886,8 @@ function showDataSourceProperties(id, nodeData, config) {
                         <th class="actions-col"></th>
                     </tr>
                 </thead>
-                <tbody>
-                    ${rows.map((row, rowIdx) => `
+        <tbody>
+            ${rows.map((row, rowIdx) => `
                         <tr>
                             ${columns.map(col => `
                                 <td>
@@ -690,19 +900,21 @@ function showDataSourceProperties(id, nodeData, config) {
                             </td>
                         </tr>
                     `).join('')}
-                </tbody>
+        </tbody>
             </table>
         </div>
         <div class="data-actions">
             <button onclick="addRow('${id}')" class="btn-small">+ Add Row</button>
+            <button onclick="showDataSourceModal('${id}')" class="btn-small" style="background:var(--node-type)">✏️ Expand Editor</button>
             <button onclick="importCSV('${id}')" class="btn-small">📄 Import CSV</button>
             <button onclick="clearAllRows('${id}')" class="btn-small btn-danger-small">🗑️ Clear</button>
+            <button onclick="runFlow('${id}')" class="btn-small" style="background:#059669; border-color:#059669; margin-left:auto;">⏩ Resume</button>
         </div>
     </div>`;
 
     // Hidden file input for CSV import
-    html += `<input type="file" id="csv-input-${id}" accept=".csv,.txt" 
-             onchange="handleCSVImport('${id}', this)" style="display:none">`;
+    html += `<input type="file" id="csv-input-${id}" accept=".csv,.txt"
+    onchange="handleCSVImport('${id}', this)" style="display:none">`;
 
     panel.innerHTML = html;
 }
@@ -712,7 +924,7 @@ function addColumn(nodeId) {
     const nodeData = state.nodes.get(nodeId);
     if (!nodeData) return;
 
-    const newName = prompt('Column name:', `col${nodeData.params.columns.length + 1}`);
+    const newName = prompt('Column name:', `col${nodeData.params.columns.length + 1} `);
     if (newName && newName.trim()) {
         nodeData.params.columns.push(newName.trim());
         showProperties(nodeId);
@@ -799,7 +1011,7 @@ function clearAllRows(nodeId) {
 
 // CSV Import
 function importCSV(nodeId) {
-    document.getElementById(`csv-input-${nodeId}`).click();
+    document.getElementById(`csv - input - ${nodeId} `).click();
 }
 
 function handleCSVImport(nodeId, input) {
@@ -884,6 +1096,209 @@ function updateParam(id, param, value) {
     }
 }
 
+// ==================== Data Source Modal (Expanded Editor) ====================
+
+function showDataSourceModal(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    // Create modal if not exists
+    let modal = document.getElementById('data-source-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'data-source-modal';
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+        <div class="modal-content">
+                <div class="modal-header">
+                    <h2>📊 Data Source Editor</h2>
+                    <button class="modal-close" onclick="closeDataSourceModal()">×</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Paste Section -->
+                    <div class="modal-section">
+                        <h3>📋 Paste Data (Excel / Text)</h3>
+                        <div class="paste-container">
+                            <textarea id="modal-paste-area" class="paste-area" 
+                                placeholder="Paste your data here...&#10;For single column: one item per line&#10;For multiple columns: tab or comma separated"></textarea>
+                            <div class="paste-controls">
+                                <button onclick="handlePasteData('${nodeId}')" class="btn-paste-confirm">Start Import</button>
+                                <button onclick="document.getElementById('modal-paste-area').value = ''">Clear Paste</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Table Section -->
+                    <div class="modal-section" style="flex:1; overflow:hidden; display:flex; flex-direction:column;">
+                        <h3>
+                            Data Preview
+                            <span class="hint" id="modal-row-count">0 rows</span>
+                        </h3>
+                        <div class="data-table-container" style="max-height:100%; height:100%;">
+                            <div id="modal-table-content"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="closeDataSourceModal()">Close</button>
+                    <button onclick="saveAndCloseModal('${nodeId}')" class="btn-primary">Apply Changes</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Close on escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('show')) {
+                closeDataSourceModal();
+            }
+        });
+    }
+
+    // Reset paste area
+    const pasteArea = document.getElementById('modal-paste-area');
+    if (pasteArea) {
+        pasteArea.value = '';
+        // Update onclick handler for current node
+        const pasteBtn = modal.querySelector('.btn-paste-confirm');
+        pasteBtn.onclick = () => handlePasteData(nodeId);
+
+        const applyBtn = modal.querySelector('.btn-primary');
+        applyBtn.onclick = () => saveAndCloseModal(nodeId);
+    }
+
+    renderModalTable(nodeId);
+
+    // Show modal
+    modal.style.display = 'flex'; // Ensure generic display is flex
+    // Trigger reflow
+    modal.offsetHeight;
+    modal.classList.add('show');
+}
+
+function closeDataSourceModal() {
+    const modal = document.getElementById('data-source-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        setTimeout(() => {
+            modal.style.display = 'none';
+        }, 200);
+    }
+}
+
+function saveAndCloseModal(nodeId) {
+    closeDataSourceModal();
+    // Refresh sidebar properties
+    showProperties(nodeId);
+    updateNodeBody(nodeId);
+}
+
+function renderModalTable(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const container = document.getElementById('modal-table-content');
+    const columns = nodeData.params.columns || [];
+    const rows = nodeData.params.rows || [];
+
+    document.getElementById('modal-row-count').textContent = `${rows.length} rows`;
+
+    let html = `
+        <table class="large-data-table">
+            <thead>
+                <tr>
+                    <th style="width:40px">#</th>
+                    ${columns.map(col => `<th>${col}</th>`).join('')}
+                    <th class="actions-col"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows.map((row, rowIdx) => `
+                    <tr>
+                        <td style="color:var(--text-secondary); font-size:0.8em">${rowIdx + 1}</td>
+                        ${columns.map(col => `
+                            <td>
+                                <input type="text" value="${row[col] || ''}" 
+                                       onchange="updateRowCell('${nodeId}', ${rowIdx}, '${col}', this.value)">
+                            </td>
+                        `).join('')}
+                        <td class="actions-col">
+                            <button onclick="removeRowFromModal('${nodeId}', ${rowIdx})" title="Delete row" style="background:transparent; border:none; color:#ef4444;">🗑️</button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        `;
+
+    container.innerHTML = html;
+}
+
+function removeRowFromModal(nodeId, rowIdx) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    nodeData.params.rows.splice(rowIdx, 1);
+    renderModalTable(nodeId);
+    updateNodeBody(nodeId);
+}
+
+function handlePasteData(nodeId) {
+    const nodeData = state.nodes.get(nodeId);
+    if (!nodeData) return;
+
+    const textarea = document.getElementById('modal-paste-area');
+    const text = textarea.value;
+
+    if (!text.trim()) return;
+
+    const lines = text.trim().split(/\r?\n/);
+    const columns = nodeData.params.columns;
+    let addedCount = 0;
+
+    lines.forEach(line => {
+        if (!line.trim()) return;
+
+        const row = {};
+
+        // Auto-detect delimiter
+        let values = [];
+        if (columns.length > 1) {
+            if (line.includes('\t')) {
+                values = line.split('\t');
+            } else if (line.includes(',')) {
+                // Simple CSV split (not handling quotes here for simplicity, or use parseCSVLine)
+                values = line.split(',');
+            } else {
+                // Treat as single value
+                values = [line.trim()];
+            }
+        } else {
+            // Single column
+            values = [line.trim()];
+        }
+
+        columns.forEach((col, idx) => {
+            row[col] = (values[idx] || '').trim();
+        });
+
+        nodeData.params.rows.push(row);
+        addedCount++;
+    });
+
+    textarea.value = '';
+    renderModalTable(nodeId);
+    updateNodeBody(nodeId);
+
+    // Provide feedback
+    const btn = document.querySelector('.btn-paste-confirm');
+    const originalText = btn.innerText;
+    btn.innerText = `✅ Added ${addedCount} rows!`;
+    setTimeout(() => {
+        btn.innerText = originalText;
+    }, 2000);
+}
+
 // ==================== Node Dragging ====================
 function initNodeDrag() {
     // Handle existing start node
@@ -965,7 +1380,7 @@ function initConnections() {
             const endY = e.clientY - containerRect.top;
             const midX = (startX + endX) / 2;
 
-            tempLine.setAttribute('d', `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`);
+            tempLine.setAttribute('d', `M ${startX} ${startY} C ${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY} `);
         }
     });
 
@@ -1039,9 +1454,15 @@ function initConnectionEvents(node) {
     });
 }
 
+// Global segments registry to track drawn paths for collision/jump logic
+let drawnSegments = [];
+
 function renderConnections() {
     const svg = document.getElementById('connections');
     svg.innerHTML = '';
+
+    // Reset segments registry
+    drawnSegments = [];
 
     const canvas = document.getElementById('canvas');
     const canvasRect = canvas.getBoundingClientRect();
@@ -1089,7 +1510,8 @@ function renderConnections() {
         const toBox = nodeBoxes.find(b => b.id === conn.to);
 
         // Calculate smart route path
-        const pathD = calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn);
+        const pathData = calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn);
+        const pathD = pathData.d;
 
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', pathD);
@@ -1105,11 +1527,13 @@ function renderConnections() {
         path.addEventListener('mouseenter', () => {
             path.setAttribute('stroke-width', '6');
             path.setAttribute('stroke', '#ff0000');
+            path.style.zIndex = 1000;
         });
         path.addEventListener('mouseleave', () => {
             path.setAttribute('stroke-width', '3');
             path.setAttribute('stroke', conn.fromPort === 'yes' ? '#4ade80' :
                 conn.fromPort === 'no' ? '#ef4444' : '#e94560');
+            path.style.zIndex = '';
         });
 
         // Click to delete
@@ -1121,10 +1545,16 @@ function renderConnections() {
         });
 
         svg.appendChild(path);
+
+        // Register segments for future avoidance/jumps
+        if (pathData.segments) {
+            drawnSegments.push(...pathData.segments);
+        }
     });
 }
 
 // Smart routing algorithm that avoids nodes
+// Smart routing algorithm that avoids nodes and existing lines
 function calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn) {
     const MARGIN = 25; // Margin around nodes
     const CURVE_RADIUS = 12; // Radius for rounded corners
@@ -1132,27 +1562,129 @@ function calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn) {
     // Exclude source and target nodes from obstacles
     const obstacles = nodeBoxes.filter(b => b.id !== conn.from && b.id !== conn.to);
 
+    let waypoints = [];
+
     // Determine relative positions
     const goingRight = x2 > x1;
-    const goingDown = y2 > y1;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
 
     // Simple case: direct horizontal connection (nodes on same row)
+    let directPossible = false;
     if (Math.abs(y1 - y2) < 50 && goingRight) {
         // Check if path is clear
         const pathClear = !obstacles.some(obs =>
             lineIntersectsBox(x1, y1, x2, y2, obs, MARGIN)
         );
+        if (pathClear) directPossible = true;
+    }
 
-        if (pathClear) {
-            return `M ${x1} ${y1} L ${x2} ${y2}`;
+    if (directPossible) {
+        waypoints = [[x1, y1], [x2, y2]];
+    } else {
+        // Calculate orthogonal path with obstacle avoidance
+        waypoints = calculateOrthogonalPath(x1, y1, x2, y2, fromBox, toBox, obstacles, MARGIN);
+    }
+
+    // Process waypoints to add jumps at intersections
+    const result = addJumpsAndRoundCorners(waypoints, CURVE_RADIUS, drawnSegments);
+
+    return {
+        d: result.path,
+        segments: result.segments // Return new segments to registry
+    };
+}
+
+// Check vertical channel
+function findClearVerticalChannel(minX, maxX, minY, maxY, obstacles, margin) {
+    const startX = Math.min(minX, maxX);
+    const endX = Math.max(minX, maxX);
+    const startY = Math.min(minY, maxY);
+    const endY = Math.max(minY, maxY);
+
+    // Try middle first
+    let testX = (startX + endX) / 2;
+
+    const intersectsObstacle = (x) => obstacles.some(obs =>
+        x >= obs.left - margin &&
+        x <= obs.right + margin &&
+        !(startY > obs.bottom + margin || endY < obs.top - margin)
+    );
+
+    // Also check against existing vertical segments to avoid overlay
+    const intersectsLine = (x) => drawnSegments.some(seg =>
+        seg.orient === 'v' &&
+        Math.abs(seg.c - x) < 10 && // Check proximity (10px buffer)
+        Math.max(startY, seg.start) < Math.min(endY, seg.end) // Overlap in Y
+    );
+
+    // If middle is clear, use it
+    if (!intersectsObstacle(testX) && !intersectsLine(testX)) return testX;
+
+    // Search outward from middle for a clear channel
+    const step = 15;
+    const range = Math.abs(endX - startX) / 2;
+
+    for (let offset = 1; offset * step <= range + 100; offset++) {
+        // Try right
+        let tx = testX + offset * step;
+        if (tx <= endX + 100) {
+            if (!intersectsObstacle(tx) && !intersectsLine(tx)) return tx;
+        }
+
+        // Try left
+        tx = testX - offset * step;
+        if (tx >= startX - 100) {
+            if (!intersectsObstacle(tx) && !intersectsLine(tx)) return tx;
         }
     }
 
-    // Calculate orthogonal path with obstacle avoidance
-    const waypoints = calculateOrthogonalPath(x1, y1, x2, y2, fromBox, toBox, obstacles, MARGIN);
+    // Fallback
+    return testX;
+}
 
-    // Build path string with rounded corners
-    return buildRoundedPath(waypoints, CURVE_RADIUS);
+// Check horizontal channel
+function findClearHorizontalChannel(minY, maxY, minX, maxX, obstacles, margin) {
+    const startY = Math.min(minY, maxY);
+    const endY = Math.max(minY, maxY);
+    const startX = Math.min(minX, maxX);
+    const endX = Math.max(minX, maxX);
+
+    let testY = (startY + endY) / 2;
+
+    const intersectsObstacle = (y) => obstacles.some(obs =>
+        y >= obs.top - margin &&
+        y <= obs.bottom + margin &&
+        !(startX > obs.right + margin || endX < obs.left - margin)
+    );
+
+    // Check line overlap
+    const intersectsLine = (y) => drawnSegments.some(seg =>
+        seg.orient === 'h' &&
+        Math.abs(seg.c - y) < 10 &&
+        Math.max(startX, seg.start) < Math.min(endX, seg.end)
+    );
+
+    if (!intersectsObstacle(testY) && !intersectsLine(testY)) return testY;
+
+    const step = 15;
+    for (let offset = 1; offset <= 20; offset++) {
+        let ty = testY + offset * step;
+        if (!intersectsObstacle(ty) && !intersectsLine(ty)) return ty;
+
+        ty = testY - offset * step;
+        if (!intersectsObstacle(ty) && !intersectsLine(ty)) return ty;
+    }
+
+    // Go further if needed
+    for (let y = endY + 20; y <= endY + 300; y += 20) {
+        if (!intersectsObstacle(y) && !intersectsLine(y)) return y;
+    }
+    for (let y = startY - 20; y >= startY - 300; y -= 20) {
+        if (!intersectsObstacle(y) && !intersectsLine(y)) return y;
+    }
+
+    return testY;
 }
 
 // Calculate orthogonal (right-angle) path avoiding obstacles
@@ -1356,56 +1888,155 @@ function simplifyPath(points) {
     return simplified;
 }
 
-// Build SVG path with rounded corners
-function buildRoundedPath(points, radius) {
-    if (points.length < 2) return '';
-    if (points.length === 2) {
-        return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;
-    }
+// Build SVG path with rounded corners AND jumps
+function addJumpsAndRoundCorners(points, radius, existingSegments) {
+    if (points.length < 2) return { path: '', segments: [] };
 
-    let d = `M ${points[0][0]} ${points[0][1]}`;
+    // Simplify collinear points first
+    points = simplifyPath(points);
 
-    for (let i = 1; i < points.length - 1; i++) {
-        const prev = points[i - 1];
+    let d = `M ${points[0][0]} ${points[0][1]} `; // Move to start
+    let currentSegments = [];
+    const JUMP_RADIUS = 8;
+    const CORNER_RADIUS = 12;
+
+    for (let i = 0; i < points.length - 1; i++) {
         const curr = points[i];
         const next = points[i + 1];
 
-        // Calculate vectors
-        const dx1 = curr[0] - prev[0];
-        const dy1 = curr[1] - prev[1];
-        const dx2 = next[0] - curr[0];
-        const dy2 = next[1] - curr[1];
+        // Determine current segment properties
+        const isHorizontal = Math.abs(curr[1] - next[1]) < 0.1;
+        const startVal = isHorizontal ? Math.min(curr[0], next[0]) : Math.min(curr[1], next[1]);
+        const endVal = isHorizontal ? Math.max(curr[0], next[0]) : Math.max(curr[1], next[1]);
+        const constantVal = isHorizontal ? curr[1] : curr[0];
 
-        const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
-        const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+        // Register this segment for future collision detection
+        currentSegments.push({
+            orient: isHorizontal ? 'h' : 'v',
+            c: constantVal,
+            start: startVal,
+            end: endVal
+        });
 
-        // Adjust radius based on segment lengths
-        const adjustedRadius = Math.min(radius, len1 / 2, len2 / 2);
+        // Findings intersections with existing segments
+        let intersections = [];
+        existingSegments.forEach(seg => {
+            // Check for perpendicular intersection
+            if (seg.orient === (isHorizontal ? 'v' : 'h')) {
+                // Must cross within segment bounds (with margin for jump)
+                if (startVal < seg.c - JUMP_RADIUS && endVal > seg.c + JUMP_RADIUS &&
+                    constantVal > seg.start && constantVal < seg.end) {
+                    intersections.push(seg.c);
+                }
+            }
+        });
 
-        if (adjustedRadius < 2) {
-            // Too small for curve, just line to
-            d += ` L ${curr[0]} ${curr[1]}`;
-            continue;
+        // Sort intersections based on direction of travel
+        const isForward = isHorizontal ? (next[0] > curr[0]) : (next[1] > curr[1]);
+        intersections.sort((a, b) => isForward ? (a - b) : (b - a));
+
+        // Determine end point of this straight segment (before corner or at target)
+        let segmentEndX = next[0];
+        let segmentEndY = next[1];
+
+        // If not the last segment, stop short for rounded corner
+        let hasCorner = false;
+        if (i < points.length - 2) {
+            const afterNext = points[i + 2];
+            // Calculate corner start point
+            if (isHorizontal) {
+                const cornerDist = Math.min(Math.abs(next[0] - curr[0]) / 2, CORNER_RADIUS);
+                segmentEndX = isForward ? next[0] - cornerDist : next[0] + cornerDist;
+                hasCorner = true;
+            } else {
+                const cornerDist = Math.min(Math.abs(next[1] - curr[1]) / 2, CORNER_RADIUS);
+                segmentEndY = isForward ? next[1] - cornerDist : next[1] + cornerDist;
+                hasCorner = true;
+            }
         }
 
-        // Calculate start and end points of the curve
-        const startX = curr[0] - (dx1 / len1) * adjustedRadius;
-        const startY = curr[1] - (dy1 / len1) * adjustedRadius;
-        const endX = curr[0] + (dx2 / len2) * adjustedRadius;
-        const endY = curr[1] + (dy2 / len2) * adjustedRadius;
+        // Draw line segments and jumps
+        let currentX = isHorizontal ? (isForward ? startVal : endVal) : constantVal;
+        let currentY = isHorizontal ? constantVal : (isForward ? startVal : endVal);
 
-        // Line to start of curve
-        d += ` L ${startX} ${startY}`;
+        // Correct start position if we just did a corner?
+        // The SVG path cursor is already at the start of this segment (end of previous turn).
+        // If i > 0, we started this segment 'CORNER_RADIUS' away from 'curr'.
+        if (i > 0) {
+            if (isHorizontal) {
+                currentX = isForward ? curr[0] + CORNER_RADIUS : curr[0] - CORNER_RADIUS;
+            } else {
+                currentY = isForward ? curr[1] + CORNER_RADIUS : curr[1] - CORNER_RADIUS;
+            }
+        } else {
+            currentX = curr[0];
+            currentY = curr[1];
+        }
 
-        // Quadratic curve through the corner
-        d += ` Q ${curr[0]} ${curr[1]} ${endX} ${endY}`;
+        // Iterate through jumps
+        for (let j = 0; j < intersections.length; j++) {
+            const crossVal = intersections[j];
+
+            // Check if jump is within the actual drawing range (accounting for corners)
+            let inRange = false;
+            // Range is from currentX/Y to segmentEndX/Y
+            if (isHorizontal) {
+                const minX = Math.min(currentX, segmentEndX);
+                const maxX = Math.max(currentX, segmentEndX);
+                if (crossVal > minX + JUMP_RADIUS && crossVal < maxX - JUMP_RADIUS) inRange = true;
+            } else {
+                const minY = Math.min(currentY, segmentEndY);
+                const maxY = Math.max(currentY, segmentEndY);
+                if (crossVal > minY + JUMP_RADIUS && crossVal < maxY - JUMP_RADIUS) inRange = true;
+            }
+
+            if (inRange) {
+                // Line to jump start
+                if (isHorizontal) {
+                    const jumpStart = isForward ? crossVal - JUMP_RADIUS : crossVal + JUMP_RADIUS;
+                    const jumpEnd = isForward ? crossVal + JUMP_RADIUS : crossVal - JUMP_RADIUS;
+                    d += ` L ${jumpStart} ${currentY}`;
+                    // Jump arc
+                    d += ` A ${JUMP_RADIUS} ${JUMP_RADIUS} 0 0 1 ${jumpEnd} ${currentY}`;
+                    currentX = jumpEnd;
+                } else {
+                    const jumpStart = isForward ? crossVal - JUMP_RADIUS : crossVal + JUMP_RADIUS;
+                    const jumpEnd = isForward ? crossVal + JUMP_RADIUS : crossVal - JUMP_RADIUS;
+                    d += ` L ${currentX} ${jumpStart}`;
+                    // Jump arc
+                    d += ` A ${JUMP_RADIUS} ${JUMP_RADIUS} 0 0 1 ${currentX} ${jumpEnd}`;
+                    currentY = jumpEnd;
+                }
+            }
+        }
+
+        // Draw remaining line to end of straight segment (or corner start)
+        d += ` L ${segmentEndX} ${segmentEndY} `;
+
+        // Draw corner if needed
+        if (hasCorner) {
+            const afterNext = points[i + 2];
+            // Determine end of corner (start of next segment)
+            let cornerEndTargetX = next[0];
+            let cornerEndTargetY = next[1];
+
+            // Direction of next segment
+            const nextIsHorizontal = Math.abs(next[1] - afterNext[1]) < 0.1;
+            const nextIsForward = nextIsHorizontal ? (afterNext[0] > next[0]) : (afterNext[1] > next[1]);
+
+            if (nextIsHorizontal) {
+                const dist = Math.min(Math.abs(afterNext[0] - next[0]) / 2, CORNER_RADIUS);
+                cornerEndTargetX = nextIsForward ? next[0] + dist : next[0] - dist;
+            } else {
+                const dist = Math.min(Math.abs(afterNext[1] - next[1]) / 2, CORNER_RADIUS);
+                cornerEndTargetY = nextIsForward ? next[1] + dist : next[1] - dist;
+            }
+
+            d += ` Q ${next[0]} ${next[1]} ${cornerEndTargetX} ${cornerEndTargetY} `;
+        }
     }
 
-    // Final line to last point
-    const last = points[points.length - 1];
-    d += ` L ${last[0]} ${last[1]}`;
-
-    return d;
+    return { path: d, segments: currentSegments };
 }
 
 // Delete a specific connection
@@ -1431,13 +2062,13 @@ function saveFlow() {
         .then(r => r.json())
         .then(data => {
             state.currentFlowId = flow.id;
-            setStatus(`Flow saved: ${flow.id}`);
+            setStatus(`Flow saved: ${flow.id} `);
             loadFlowList();
         })
         .catch(err => setStatus('Error saving flow: ' + err, true));
 }
 
-async function runFlow() {
+async function runFlow(startNodeId = null, initialData = {}) {
     showLoading('Saving flow...');
 
     try {
@@ -1462,18 +2093,22 @@ async function runFlow() {
         document.getElementById('btn-run').style.display = 'none';
         document.getElementById('btn-stop').style.display = 'inline-block';
 
-        addLog('🚀 Running flow...', 'info');
-        setStatus('Running flow...');
+        addLog(startNodeId ? `🚀 Resuming flow from node: ${startNodeId}...` : '🚀 Running flow...', 'info');
+        setStatus(startNodeId ? 'Resuming flow...' : 'Running flow...');
 
         // Remove previous status classes
         document.querySelectorAll('.node').forEach(n => {
             n.classList.remove('node-running', 'node-success', 'node-error');
         });
 
+        const payload = {};
+        if (startNodeId) payload.startNodeId = startNodeId;
+        if (initialData && Object.keys(initialData).length > 0) payload.initialData = initialData;
+
         const runRes = await fetch(`/api/flows/${state.currentFlowId}/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({})
+            body: JSON.stringify(payload)
         });
 
         // Reader for streaming response
@@ -1982,6 +2617,7 @@ function setStatus(msg, isError = false) {
 // ==================== Floating Preview Panel ====================
 let autoRefreshInterval = null;
 let previewVisible = false;
+let previewMode = 'screenshot'; // 'screenshot' or 'scrcpy'
 
 function togglePreviewPanel() {
     const panel = document.getElementById('floating-preview');
@@ -1991,13 +2627,96 @@ function togglePreviewPanel() {
     if (previewVisible) {
         panel.style.display = 'block';
         btn.textContent = '📱 Hide Preview';
-        refreshScreen();
+
+        // Load saved scrcpy URL
+        const savedUrl = localStorage.getItem('scrcpy_url');
+        if (savedUrl) {
+            document.getElementById('scrcpy-url').value = savedUrl;
+        }
+
+        // Load saved preview mode
+        const savedMode = localStorage.getItem('preview_mode') || 'screenshot';
+        setPreviewMode(savedMode, true);
+
         initFloatingPanelDrag();
     } else {
         panel.style.display = 'none';
         btn.textContent = '📱 Show Preview';
         stopAutoRefresh();
     }
+}
+
+function setPreviewMode(mode, initial = false) {
+    previewMode = mode;
+    localStorage.setItem('preview_mode', mode);
+
+    const screenshotDiv = document.getElementById('preview-screenshot');
+    const scrcpyDiv = document.getElementById('preview-scrcpy');
+    const autoRefreshSelect = document.getElementById('auto-refresh');
+    const modeSelect = document.getElementById('preview-mode');
+
+    if (modeSelect && !initial) {
+        modeSelect.value = mode;
+    } else if (modeSelect && initial) {
+        modeSelect.value = mode;
+    }
+
+    if (mode === 'scrcpy') {
+        screenshotDiv.style.display = 'none';
+        scrcpyDiv.style.display = 'flex';
+        autoRefreshSelect.style.display = 'none'; // Hide auto-refresh for scrcpy
+        stopAutoRefresh();
+
+        // Auto-load scrcpy if URL is set
+        const url = document.getElementById('scrcpy-url').value;
+        const iframe = document.getElementById('scrcpy-iframe');
+        if (url && !iframe.src) {
+            loadScrcpy();
+        }
+
+        setStatus('Scrcpy mode - realtime streaming');
+    } else {
+        screenshotDiv.style.display = 'block';
+        scrcpyDiv.style.display = 'none';
+        autoRefreshSelect.style.display = 'inline-block';
+        refreshScreen();
+        setStatus('Screenshot mode');
+    }
+}
+
+function loadScrcpy() {
+    const urlInput = document.getElementById('scrcpy-url');
+    const iframe = document.getElementById('scrcpy-iframe');
+    let url = urlInput.value.trim();
+
+    if (!url) {
+        setStatus('Please enter ws-scrcpy URL', true);
+        return;
+    }
+
+    // Ensure URL has protocol
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'http://' + url;
+        urlInput.value = url;
+    }
+
+    // Save URL for later
+    localStorage.setItem('scrcpy_url', url);
+
+    // Load iframe
+    iframe.src = url;
+    setStatus(`Loading scrcpy from ${url}...`);
+
+    // Check if loaded
+    iframe.onload = () => {
+        setStatus('Scrcpy loaded - realtime streaming active');
+        document.getElementById('connection-status').textContent = '🟢 Scrcpy Connected';
+        document.getElementById('connection-status').classList.add('connected');
+    };
+
+    iframe.onerror = () => {
+        setStatus('Failed to load scrcpy', true);
+    };
 }
 
 function setAutoRefresh(interval) {

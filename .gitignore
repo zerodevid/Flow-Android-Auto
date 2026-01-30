@@ -46,6 +46,7 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
+flows/
 recordings/
 *.mp4
 *.avi

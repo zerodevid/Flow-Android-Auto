@@ -155,26 +155,57 @@ class StepRegistry:
                     return StepResult.SUCCESS
             return StepResult.FAILED
         
+        # Wait until text/element disappears from screen
+        def action_wait_gone(ctx: StepContext, text: str = None,
+                             timeout: float = 30, **kwargs) -> StepResult:
+            """Wait until the specified text disappears from screen"""
+            if not text:
+                return StepResult.FAILED
+            
+            print(f"  👻 Waiting for '{text}' to disappear...")
+            start_time = time.time()
+            poll_interval = 0.5
+            
+            while time.time() - start_time < timeout:
+                # Refresh screen and check if text still exists
+                try:
+                    elem = self.portal.find_by_text(text)
+                    if not elem:
+                        elapsed = time.time() - start_time
+                        print(f"  ✓ Element gone after {elapsed:.1f}s")
+                        return StepResult.SUCCESS
+                except:
+                    # Error finding element = probably gone
+                    return StepResult.SUCCESS
+                
+                time.sleep(poll_interval)
+            
+            print(f"  ✗ Timeout - '{text}' still visible after {timeout}s")
+            return StepResult.FAILED
+        
         # Wait for OTP from server
         def action_otp(ctx: StepContext, timeout: float = 120, 
                        save_as: str = "otp", clear_first: bool = True, **kwargs) -> StepResult:
+            # Use fixed session "default" - any OTP that comes in will be used
+            session = "default"
+            
             # Clear old OTP before waiting
             if clear_first:
                 try:
                     import urllib.request
                     req = urllib.request.Request(
                         f"http://127.0.0.1:5000/clear",
-                        data=json.dumps({"session_id": ctx.session_id}).encode(),
+                        data=json.dumps({"session_id": session}).encode(),
                         headers={"Content-Type": "application/json"},
                         method="POST"
                     )
                     urllib.request.urlopen(req, timeout=5)
-                    print(f"  🗑️ Cleared old OTP for session: {ctx.session_id}")
+                    print(f"  🗑️ Cleared old OTP")
                 except Exception:
                     pass
             
-            print(f"  ⏳ Waiting for OTP (session: {ctx.session_id})...")
-            otp = wait_otp(ctx.session_id, timeout=timeout)
+            print(f"  ⏳ Waiting for OTP...")
+            otp = wait_otp(session, timeout=timeout)
             if otp:
                 ctx.set(save_as, otp)
                 print(f"  ✓ OTP received: {otp}")
@@ -340,52 +371,33 @@ class StepRegistry:
             clipboard_data = check_data()
             
             if not clipboard_data:
-                print("  🖱️ Performing browser interaction...")
-                # New Strategy: Tap "PASTE CLIPBOARD" button first (User Gesture)
+                print("  ⚠ Auto-check failed. Using manual input directly...")
                 
-                # 1. Try tapping the big green button (fuzzy match)
-                if self.portal.tap_text("PASTE CLIPBOARD") or self.portal.tap_text("PASTE"):
-                    print("  ✓ Tapped 'PASTE CLIPBOARD' button")
-                    time.sleep(1)
-                    
-                    # 2. Handle Permission Popup (if any)
-                    # Chrome might ask "Allow Chrome to paste from your clipboard?"
-                    if self.portal.tap_text("Allow"):
-                        print("  ✓ Tapped 'Allow' permission")
-                        time.sleep(1)
-                    
-                    # Check if data arrived
-                    clipboard_data = check_data()
-                
-                # 3. Fallback to Manual Paste if still no data
-                if not clipboard_data:
-                    print("  ⚠ JS Paste failed, trying manual input...")
-                    
-                    clicked_input = False
-                    # Tap input field
-                    if self.portal.tap_text("Paste here manually"):
+                clicked_input = False
+                # Tap input field
+                if self.portal.tap_text("Paste here manually"):
+                    clicked_input = True
+                elif self.portal.tap_text("OR MANUAL PASTE:"):
+                        # The label is h3, might focus input
                         clicked_input = True
-                    elif self.portal.tap_text("OR MANUAL PASTE:"):
-                         # The label is h3, might focus input
-                         clicked_input = True
+                
+                if clicked_input:
+                    print("  ✓ Tapped manual input field")
+                    time.sleep(0.5)
+                    # Send PASTE keycode
+                    subprocess.run(["adb", "shell", "input", "keyevent", "279"], timeout=2)
+                    print("  📋 Sent PASTE keycode")
+                    time.sleep(0.5)
                     
-                    if clicked_input:
-                        print("  ✓ Tapped manual input field")
-                        time.sleep(0.5)
-                        # Send PASTE keycode
-                        subprocess.run(["adb", "shell", "input", "keyevent", "279"], timeout=2)
-                        print("  📋 Sent PASTE keycode")
-                        time.sleep(0.5)
-                        
-                        # Tap Send
-                        if self.portal.tap_text("Send Manual"):
-                            print("  ✓ Tapped Send Manual button")
-                        else:
-                            # Try generic enter
-                            subprocess.run(["adb", "shell", "input", "keyevent", "66"], timeout=2)
-                        
-                        time.sleep(1)
-                        clipboard_data = check_data()
+                    # Tap Send
+                    if self.portal.tap_text("Send Manual"):
+                        print("  ✓ Tapped Send Manual button")
+                    else:
+                        # Try generic enter
+                        subprocess.run(["adb", "shell", "input", "keyevent", "66"], timeout=2)
+                    
+                    time.sleep(1)
+                    clipboard_data = check_data()
 
             # Step 5: Close browser and return to original app
 
@@ -460,11 +472,12 @@ class StepRegistry:
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
-        # Webhook action for integration
-        def action_webhook(ctx: StepContext, url: str, method: str = "POST", 
+        # HTTP Request action for API calls
+        def action_http_request(ctx: StepContext, url: str, method: str = "POST", 
                           headers: Dict = None, include_data: bool = True,
-                          payload: Dict = None, timeout: float = 10, **kwargs) -> StepResult:
-            print(f"  🌐 Webhook: {method} {url}")
+                          payload: Dict = None, timeout: float = 10,
+                          save_response: str = None, **kwargs) -> StepResult:
+            print(f"  📡 HTTP Request: {method} {url}")
             
             try:
                 import urllib.request
@@ -500,14 +513,25 @@ class StepRegistry:
                 # Execute
                 with urllib.request.urlopen(req, timeout=timeout) as response:
                     status = response.status
-                    print(f"  ✓ Webhook success: {status}")
+                    response_body = response.read().decode('utf-8')
+                    
+                    # Save response if requested
+                    if save_response:
+                        try:
+                            response_data = json.loads(response_body)
+                        except:
+                            response_data = response_body
+                        ctx.set(save_response, response_data)
+                        print(f"  ✓ Response saved to '{save_response}'")
+                    
+                    print(f"  ✓ HTTP Request success: {status}")
                     return StepResult.SUCCESS
                     
             except urllib.error.HTTPError as e:
-                print(f"  ✗ Webhook HTTP error: {e.code} {e.reason}")
+                print(f"  ✗ HTTP Request error: {e.code} {e.reason}")
                 return StepResult.FAILED
             except Exception as e:
-                print(f"  ✗ Webhook error: {e}")
+                print(f"  ✗ HTTP Request error: {e}")
                 return StepResult.FAILED
 
         # Register all
@@ -515,6 +539,7 @@ class StepRegistry:
             "tap": action_tap,
             "type": action_type,
             "wait": action_wait,
+            "wait_gone": action_wait_gone,
             "otp": action_otp,
             "totp": action_totp,
             "key": action_key,
@@ -525,7 +550,8 @@ class StepRegistry:
             "delay": action_delay,
             "launch": action_launch,
             "check": action_check,
-            "webhook": action_webhook,
+            "http_request": action_http_request,
+            "webhook": action_http_request,  # Backward compatibility
         }
         
         # Shell command (for adb operations)
@@ -786,13 +812,16 @@ class StepRegistry:
         
         # Data Source Iterator
         def action_data_source(ctx: StepContext, rows: List[Dict] = None, 
-                               columns: List[str] = None, **kwargs) -> StepResult:
+                               columns: List[str] = None, start_index: int = 0, **kwargs) -> StepResult:
             if not rows:
                 print("  ⚠️ No data rows provided")
                 return StepResult.FAILED
 
             # Get current index (stateful iteration)
-            index = ctx.get("_data_source_index", 0)
+            # Check context first, then param default (which allows resuming from a specific index)
+            index = ctx.get("_data_source_index")
+            if index is None:
+                index = int(start_index)
             
             if index < len(rows):
                 # Load current row data
@@ -811,12 +840,62 @@ class StepRegistry:
                 print(f"  🏁 Data Source: No more rows (finished {len(rows)})")
                 return StepResult.FAILED
 
+        # Fingerprint - simulate fingerprint touch on emulator
+        def action_fingerprint(ctx: StepContext, finger_id: str = "1", 
+                               delay: float = 0.5, **kwargs) -> StepResult:
+            """
+            Simulate fingerprint touch sensor on Android Emulator.
+            Uses: adb emu finger touch <finger_id>
+            Finger IDs: 1-10 (same as Android Studio Extended Controls)
+            """
+            import subprocess
+            
+            if delay > 0:
+                time.sleep(delay)
+            
+            try:
+                # adb emu finger touch <finger_id>
+                result = subprocess.run(
+                    ["adb", "emu", "finger", "touch", str(finger_id)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                
+                if result.returncode == 0 and "OK" in result.stdout:
+                    print(f"  👆 Fingerprint: Touch sensor (Finger {finger_id})")
+                    return StepResult.SUCCESS
+                else:
+                    # Try alternative method via telnet if direct adb fails
+                    print(f"  ⚠️ Fingerprint via ADB failed, trying alternative...")
+                    # Some emulators need a different approach
+                    result2 = subprocess.run(
+                        ["adb", "shell", "input", "keyevent", "KEYCODE_FINGERPRINT"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result2.returncode == 0:
+                        print(f"  👆 Fingerprint: Keyevent sent")
+                        return StepResult.SUCCESS
+                    
+                    print(f"  ✗ Fingerprint failed: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+                    
+            except subprocess.TimeoutExpired:
+                print(f"  ✗ Fingerprint: Timeout")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ Fingerprint error: {e}")
+                return StepResult.FAILED
+
         self._actions["shell"] = action_shell
         self._actions["close"] = action_close
         self._actions["clear_data"] = action_clear_data
         self._actions["ask_ai"] = action_ask_ai
         self._actions["condition"] = action_condition
         self._actions["data_source"] = action_data_source
+        self._actions["fingerprint"] = action_fingerprint
     
     def register(self, name: str, action: Callable):
         """Register a custom action"""
@@ -964,7 +1043,8 @@ class FlowRunner:
     def run_graph(self, flow_data: Dict, session_id: str = "default",
                   initial_data: Optional[Dict] = None,
                   callback: Optional[Callable[[Dict], None]] = None,
-                  max_iterations: int = 100) -> StepContext:
+                  max_iterations: int = 100,
+                  start_node_id: str = "start") -> StepContext:
         """
         Run a flow using graph-based execution with branching support.
         
@@ -974,6 +1054,7 @@ class FlowRunner:
             initial_data: Initial data to set in context
             callback: Function to call with progress updates
             max_iterations: Max iterations to prevent infinite loops
+            start_node_id: ID of the node to start execution from (default: "start")
         
         Returns:
             StepContext with results
@@ -1004,10 +1085,11 @@ class FlowRunner:
         print(f"\n{'='*60}")
         print(f"🚀 Running flow (graph mode): {len(nodes)} nodes")
         print(f"   Session: {session_id}")
+        print(f"   Start Node: {start_node_id}")
         print(f"{'='*60}\n")
         
-        # Start from 'start' node
-        current_node_id = "start"
+        # Start from 'start' node or specified node
+        current_node_id = start_node_id
         step_count = 0
         iteration = 0
         
@@ -1019,11 +1101,6 @@ class FlowRunner:
                 print("🛑 Flow stopped by user")
                 if callback:
                     callback({"type": "stopped", "step": "Flow stopped"})
-                break
-            
-            # Find next node from connections
-            if current_node_id not in conn_map:
-                print(f"🏁 End of flow (no more connections)")
                 break
             
             # For start node, just follow output

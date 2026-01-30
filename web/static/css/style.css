@@ -83,7 +83,7 @@ body {
 
 /* ==================== Sidebar ==================== */
 .sidebar {
-    width: 220px;
+    width: 260px;
     background: var(--bg-secondary);
     border-right: 1px solid var(--border);
     padding: 16px;
@@ -286,6 +286,10 @@ body {
     padding: 8px 12px;
     font-size: 0.8rem;
     color: var(--text-secondary);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .node-input,
@@ -402,6 +406,10 @@ body {
     background: linear-gradient(135deg, #8b5cf6, #6366f1);
 }
 
+.node[data-type="fingerprint"] .node-header {
+    background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+}
+
 /* ==================== Forms ==================== */
 input,
 select,
@@ -414,12 +422,12 @@ input[type="text"],
 input[type="number"],
 select,
 textarea {
-    padding: 8px 12px;
+    padding: 6px 10px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 textarea {
@@ -435,14 +443,14 @@ select:focus {
 }
 
 button {
-    padding: 8px 16px;
+    padding: 6px 12px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text-primary);
     cursor: pointer;
     transition: all 0.2s;
-    font-size: 0.9rem;
+    font-size: 0.85rem;
 }
 
 button:hover {
@@ -468,6 +476,16 @@ button:hover {
     padding: 12px;
 }
 
+#properties-panel h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+    color: var(--accent);
+}
+
 .hint {
     color: var(--text-secondary);
     font-size: 0.85rem;
@@ -475,14 +493,14 @@ button:hover {
 }
 
 .property-row {
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .property-row label {
     display: block;
     font-size: 0.75rem;
     color: var(--text-secondary);
-    margin-bottom: 4px;
+    margin-bottom: 2px;
     text-transform: uppercase;
 }
 
@@ -514,9 +532,11 @@ button:hover {
     position: fixed;
     top: 80px;
     right: 20px;
-    width: 320px;
-    min-width: 200px;
+    width: 380px;
+    min-width: 280px;
     max-width: 90vw;
+    min-height: 400px;
+    max-height: 90vh;
     background: var(--bg-secondary);
     border: 2px solid var(--border);
     border-radius: 12px;
@@ -571,6 +591,54 @@ button:hover {
     max-width: 100%;
     border-radius: 8px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+/* ==================== Scrcpy Mode Styles ==================== */
+.scrcpy-url-bar {
+    display: flex;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border);
+}
+
+.scrcpy-url-bar input {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 0.8rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+}
+
+.scrcpy-url-bar button {
+    padding: 6px 12px;
+    background: var(--success);
+    border: none;
+    color: #000;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.scrcpy-url-bar button:hover {
+    background: #22c55e;
+}
+
+#scrcpy-iframe {
+    width: 100%;
+    height: calc(100% - 45px);
+    min-height: 500px;
+    border: none;
+    background: #000;
+    border-radius: 0 0 8px 8px;
+}
+
+#preview-scrcpy {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 
 .floating-resize {
@@ -855,6 +923,7 @@ button:hover {
 
 .data-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 6px;
 }
 
@@ -875,27 +944,27 @@ button:hover {
 
 /* ==================== Run Single Node Button ==================== */
 .property-actions {
-    margin-top: 16px;
-    padding-top: 12px;
+    margin-top: 12px;
+    padding-top: 8px;
     border-top: 1px solid var(--border);
 }
 
 .btn-run-node {
-    width: 100%;
-    padding: 12px 16px;
-    font-size: 0.95rem;
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 0.85rem;
     font-weight: 600;
     background: linear-gradient(135deg, #10b981, #059669);
     border: none;
     color: white;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     transition: all 0.3s ease;
-    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
 }
 
 .btn-run-node:hover {
@@ -965,4 +1034,284 @@ button:hover {
     margin-top: 6px;
     color: var(--text-secondary);
     word-break: break-all;
+}
+
+/* ==================== Generic Modal ==================== */
+.modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out;
+}
+
+.modal-overlay.show {
+    display: flex;
+    /* Changed to display flex here via JS generally, but handled via class */
+    opacity: 1;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    width: 90%;
+    max-width: 1000px;
+    height: 85%;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    transform: scale(0.95);
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.modal-overlay.show .modal-content {
+    transform: scale(1);
+}
+
+.modal-header {
+    padding: 16px 24px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.modal-close {
+    background: transparent;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.modal-close:hover {
+    color: var(--accent);
+    transform: rotate(90deg);
+}
+
+.modal-body {
+    flex: 1;
+    padding: 24px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.modal-section {
+    background: var(--bg-primary);
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border);
+}
+
+.modal-section h3 {
+    font-size: 1rem;
+    color: var(--accent);
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-footer {
+    padding: 16px 24px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+/* Paste Area */
+.paste-container {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.paste-area {
+    flex: 1;
+    height: 150px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.85rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    color: var(--text-primary);
+    resize: none;
+}
+
+.paste-area:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+.paste-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 120px;
+}
+
+.btn-paste-confirm {
+    background: #4ade80;
+    border-color: #4ade80;
+    color: #000;
+}
+
+.btn-paste-confirm:hover {
+    background: #22c55e;
+}
+
+/* Large Data Table */
+.large-data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.large-data-table th,
+.large-data-table td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.large-data-table th {
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.large-data-table td input {
+    width: 100%;
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 4px 8px;
+}
+
+.large-data-table td input:focus {
+    border-color: var(--accent);
+    background: var(--bg-tertiary);
+}
+
+.large-data-table tr:hover td {
+    background: var(--bg-tertiary);
+}
+
+.large-data-table .actions-col {
+    width: 50px;
+    text-align: center;
+}
+
+/* ==================== Webhook Node Styles ==================== */
+.node[data-type="webhook"] .node-header {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.node[data-type="http_request"] .node-header {
+    background: #ec4899;
+}
+
+.webhook-url-section {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.webhook-url-section label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+}
+
+.webhook-url-display {
+    display: flex;
+    gap: 6px;
+}
+
+.webhook-url-display input {
+    flex: 1;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    color: var(--accent);
+    font-size: 11px;
+}
+
+.webhook-url-display input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.btn-copy {
+    padding: 6px 10px;
+    background: var(--accent);
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-copy:hover {
+    background: var(--accent-hover);
+    transform: scale(1.05);
+}
+
+.webhook-info {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    font-size: 0.8rem;
+}
+
+.webhook-info h5 {
+    color: var(--accent);
+    margin-bottom: 8px;
+    font-size: 0.85rem;
+}
+
+.webhook-info ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.webhook-info li {
+    padding: 4px 0;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.webhook-info li strong {
+    color: var(--text-primary);
 }

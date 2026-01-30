@@ -271,29 +271,73 @@ Copy content via browser bridge (untuk Android 10+).
 
 ---
 
-## 🌐 Webhook
+## 📡 HTTP Request
 
-Send HTTP request dengan captured data.
+Mengirim HTTP request ke API/URL eksternal dengan captured data.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | ✓ | - | Webhook URL |
-| `method` | string | - | "POST" | HTTP method |
-| `include_data` | bool | - | true | Include captured data |
+| `url` | string | ✓ | - | Target URL |
+| `method` | string | - | "POST" | HTTP method (GET/POST/PUT/DELETE) |
+| `include_data` | bool | - | true | Include captured data in body |
+| `save_response` | string | - | - | Variable untuk simpan response |
 
 **Contoh:**
 ```json
 {
-  "action": "webhook",
+  "action": "http_request",
   "params": {
-    "url": "https://webhook.site/xxx",
+    "url": "https://api.example.com/users",
     "method": "POST",
-    "include_data": true
+    "include_data": true,
+    "save_response": "api_result"
   }
 }
 ```
 
 Request body akan berisi semua captured data dari flow.
+
+---
+
+## 🌐 Webhook Trigger
+
+Menerima request dari luar untuk trigger flow. Mirip dengan n8n webhook.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `path` | string | ✓ | - | Webhook path (e.g., `my-webhook`) |
+| `method` | string | - | "POST" | Allowed HTTP method (POST/GET/PUT/ALL) |
+| `response_mode` | string | - | "immediate" | Response mode |
+
+**Response Modes:**
+- `immediate` - Return langsung, flow jalan di background
+- `wait_complete` - Tunggu flow selesai, return hasil
+
+**Webhook URL:**
+```
+http://your-server:8081/webhook/{path}
+```
+
+**Contoh:**
+```json
+{
+  "type": "webhook",
+  "params": {
+    "path": "register-user",
+    "method": "POST",
+    "response_mode": "immediate"
+  }
+}
+```
+
+**Cara Panggil:**
+```bash
+curl -X POST http://localhost:8081/webhook/register-user \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@mail.com", "password": "secret123"}'
+```
+
+Data yang dikirim ke webhook akan tersedia sebagai variable di flow.
 
 ---
 
@@ -325,3 +369,27 @@ Jalankan ADB shell command.
 {"action": "shell", "params": {"command": "input keyevent 26"}}
 ```
 
+---
+
+## 👆 Fingerprint
+
+Simulasi fingerprint touch sensor pada Android Emulator. Sama seperti fitur di Extended Controls Android Studio.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `finger_id` | string | - | "1" | Finger ID (1-10) |
+| `delay` | float | - | 0.5 | Delay sebelum touch (seconds) |
+
+**Finger IDs:**
+- `1` - Finger 1 (default, biasanya enrolled)
+- `2-10` - Finger 2 sampai 10
+
+**Contoh:**
+```json
+{"action": "fingerprint", "params": {"finger_id": "1", "delay": 0.5}}
+```
+
+**Note:** 
+- Hanya bekerja pada Android Emulator (bukan device fisik)
+- Pastikan fingerprint sudah di-enroll di Settings > Security > Fingerprint
+- Menggunakan command: `adb emu finger touch <finger_id>`

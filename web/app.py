@@ -56,8 +56,10 @@ def static_files(path):
 def list_flows():
     """List all saved flows"""
     flows = []
+    print(f"Searching for flows in: {FLOWS_DIR}")
     for f in FLOWS_DIR.glob('*.json'):
         try:
+            print(f"Loading {f}")
             with open(f) as fp:
                 data = json.load(fp)
             flows.append({
@@ -67,8 +69,9 @@ def list_flows():
                 'steps': len(data.get('steps', [])),
                 'modified': datetime.fromtimestamp(f.stat().st_mtime).isoformat()
             })
-        except:
-            pass
+        except Exception as e:
+            print(f"Error loading {f}: {e}")
+    print(f"Found {len(flows)} flows")
     return jsonify(flows)
 
 
@@ -176,7 +179,18 @@ def run_flow(flow_id):
                 print("📊 Using graph mode (conditional branching or data source detected)")
                 # If has data source, increase max iterations to allow loops
                 max_iter = 10000 if has_data_source else 200
-                ctx = runner.run_graph(flow_data, session_prefix, callback=on_progress, max_iterations=max_iter)
+                
+                start_node_id = data.get('startNodeId', 'start')
+                initial_data = data.get('initialData', {})
+                
+                ctx = runner.run_graph(
+                    flow_data, 
+                    session_prefix, 
+                    initial_data=initial_data,
+                    callback=on_progress, 
+                    max_iterations=max_iter,
+                    start_node_id=start_node_id
+                )
                 results = [ctx]
             else:
                 # Use regular batch mode for linear flows
@@ -233,6 +247,177 @@ def stop_flow(flow_id):
         ACTIVE_RUNNERS[flow_id].stop()
         return jsonify({'status': 'stopping'})
     return jsonify({'status': 'not_running'})
+
+
+# ==================== Webhook Endpoints ====================
+
+# Store registered webhooks: path -> {flow_id, method, response_mode}
+REGISTERED_WEBHOOKS = {}
+
+def load_webhooks():
+    """Load webhook configurations from all flows"""
+    global REGISTERED_WEBHOOKS
+    REGISTERED_WEBHOOKS = {}
+    
+    for f in FLOWS_DIR.glob('*.json'):
+        try:
+            with open(f) as fp:
+                data = json.load(fp)
+            
+            # Check for webhook node in _editor
+            editor = data.get('_editor', {})
+            nodes = editor.get('nodes', [])
+            
+            for node in nodes:
+                if node.get('type') == 'webhook':
+                    params = node.get('params', {})
+                    path = params.get('path', '').strip()
+                    if path:
+                        # Remove leading slash if present
+                        path = path.lstrip('/')
+                        REGISTERED_WEBHOOKS[path] = {
+                            'flow_id': f.stem,
+                            'flow_name': data.get('name', f.stem),
+                            'method': params.get('method', 'POST'),
+                            'response_mode': params.get('response_mode', 'immediate')
+                        }
+                        print(f"[Webhook] Registered: /{path} -> {f.stem}")
+        except Exception as e:
+            print(f"[Webhook] Error loading {f}: {e}")
+    
+    print(f"[Webhook] Total registered: {len(REGISTERED_WEBHOOKS)}")
+
+# Load webhooks at startup
+load_webhooks()
+
+@app.route('/api/webhooks', methods=['GET'])
+def list_webhooks():
+    """List all registered webhooks"""
+    load_webhooks()  # Refresh
+    return jsonify({
+        'webhooks': [
+            {
+                'path': f'/webhook/{path}',
+                'flow_id': info['flow_id'],
+                'flow_name': info['flow_name'],
+                'method': info['method'],
+                'response_mode': info['response_mode']
+            }
+            for path, info in REGISTERED_WEBHOOKS.items()
+        ]
+    })
+
+
+@app.route('/webhook/<path:webhook_path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
+def webhook_trigger(webhook_path):
+    """
+    Receive webhook calls and trigger corresponding flow.
+    Similar to n8n webhook - this is the actual webhook endpoint.
+    """
+    # Refresh webhooks in case new flows were added
+    load_webhooks()
+    
+    webhook_path = webhook_path.strip('/')
+    
+    if webhook_path not in REGISTERED_WEBHOOKS:
+        return jsonify({
+            'error': 'Webhook not found',
+            'path': webhook_path,
+            'available': list(REGISTERED_WEBHOOKS.keys())
+        }), 404
+    
+    webhook_info = REGISTERED_WEBHOOKS[webhook_path]
+    
+    # Check HTTP method
+    allowed_method = webhook_info['method']
+    if allowed_method != 'ALL' and request.method != allowed_method:
+        return jsonify({
+            'error': f'Method not allowed. Expected {allowed_method}',
+            'method': request.method
+        }), 405
+    
+    flow_id = webhook_info['flow_id']
+    response_mode = webhook_info['response_mode']
+    
+    # Get incoming data
+    incoming_data = {}
+    
+    # Query params
+    incoming_data.update(request.args.to_dict())
+    
+    # JSON body
+    if request.is_json:
+        incoming_data.update(request.json or {})
+    
+    # Form data
+    if request.form:
+        incoming_data.update(request.form.to_dict())
+    
+    # Add metadata
+    incoming_data['_webhook'] = {
+        'path': webhook_path,
+        'method': request.method,
+        'timestamp': datetime.now().isoformat(),
+        'ip': request.remote_addr
+    }
+    
+    print(f"\n[Webhook] Triggered: /{webhook_path}")
+    print(f"[Webhook] Flow: {flow_id}")
+    print(f"[Webhook] Data: {incoming_data}")
+    
+    # Load and run the flow
+    path = FLOWS_DIR / f'{flow_id}.json'
+    if not path.exists():
+        return jsonify({'error': 'Flow not found'}), 404
+    
+    if response_mode == 'immediate':
+        # Return immediately, run flow in background
+        def run_async():
+            try:
+                runner = FlowRunner(get_portal())
+                with open(path) as f:
+                    flow_data = json.load(f)
+                runner.run_graph(flow_data, f"webhook_{webhook_path}", initial_data=incoming_data)
+            except Exception as e:
+                print(f"[Webhook] Error running flow: {e}")
+        
+        import threading
+        t = threading.Thread(target=run_async, daemon=True)
+        t.start()
+        
+        return jsonify({
+            'status': 'accepted',
+            'message': 'Flow triggered',
+            'flow_id': flow_id,
+            'execution_id': f"webhook_{webhook_path}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        })
+    
+    else:  # wait_complete
+        # Wait for flow to complete and return results
+        try:
+            runner = FlowRunner(get_portal())
+            ACTIVE_RUNNERS[flow_id] = runner
+            
+            with open(path) as f:
+                flow_data = json.load(f)
+            
+            ctx = runner.run_graph(flow_data, f"webhook_{webhook_path}", initial_data=incoming_data)
+            
+            return jsonify({
+                'status': 'completed',
+                'flow_id': flow_id,
+                'results': ctx.step_results,
+                'data': ctx.data
+            })
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': str(e)}), 500
+        finally:
+            if flow_id in ACTIVE_RUNNERS:
+                del ACTIVE_RUNNERS[flow_id]
+
+
 
 
 @app.route('/api/run-step', methods=['POST'])
