@@ -23,21 +23,31 @@
       }
     },
     {
-      "name": "Condition: akbar",
+      "name": "Condition: nova",
       "action": "condition",
       "params": {
-        "check_text": "akbar"
+        "check_text": "nova"
       }
     },
     {
-      "name": "Ask AI: ai_response",
-      "action": "ask_ai",
+      "name": "Key: enter",
+      "action": "key",
       "params": {
-        "include_screen": false,
-        "model": "gemini-2.0-flash",
-        "prompt": "Generate a unique gaming username based on this \nRequirements:\n- Maximum 15 characters\n- No special characters\n- Only output the username, nothing else",
-        "provider": "gemini",
-        "save_as": "ai_response"
+        "key": "enter"
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
+      }
+    },
+    {
+      "name": "Delay:",
+      "action": "delay",
+      "params": {
+        "seconds": 1
       }
     }
   ],
@@ -46,8 +56,8 @@
       {
         "id": "start",
         "type": "start",
-        "x": 50,
-        "y": 100,
+        "x": 79,
+        "y": -155,
         "params": {}
       },
       {
@@ -60,8 +70,8 @@
           "save_as": "ai_response"
         },
         "type": "ask_ai",
-        "x": 260,
-        "y": 100
+        "x": 0,
+        "y": 83
       },
       {
         "id": "node_3",
@@ -70,16 +80,34 @@
           "from_data": "ai_response"
         },
         "type": "type",
-        "x": 1133,
-        "y": 238
+        "x": 634,
+        "y": 225
       },
       {
         "id": "node_4",
         "type": "condition",
-        "x": 934,
-        "y": 475,
+        "x": 714,
+        "y": 414,
         "params": {
-          "check_text": "akbar"
+          "check_text": "nova"
+        }
+      },
+      {
+        "id": "node_5",
+        "type": "key",
+        "x": 770,
+        "y": 560,
+        "params": {
+          "key": "enter"
+        }
+      },
+      {
+        "id": "node_6",
+        "type": "delay",
+        "x": 328,
+        "y": 312.9000015258789,
+        "params": {
+          "seconds": 1
         }
       }
     ],
@@ -87,12 +115,6 @@
       {
         "from": "start",
         "fromPort": "out",
-        "to": "node_1",
-        "toPort": "in"
-      },
-      {
-        "from": "node_4",
-        "fromPort": "no",
         "to": "node_1",
         "toPort": "in"
       },
@@ -107,9 +129,33 @@
         "fromPort": "out",
         "to": "node_4",
         "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "yes",
+        "to": "node_5",
+        "toPort": "in"
+      },
+      {
+        "from": "node_4",
+        "fromPort": "no",
+        "to": "node_6",
+        "toPort": "in"
+      },
+      {
+        "from": "node_5",
+        "fromPort": "out",
+        "to": "node_6",
+        "toPort": "in"
+      },
+      {
+        "from": "node_6",
+        "fromPort": "out",
+        "to": "node_1",
+        "toPort": "in"
       }
     ]
   },
   "id": "aiflow",
-  "updated_at": "2026-01-30T16:04:01.783576"
+  "updated_at": "2026-01-30T16:16:41.723501"
 }

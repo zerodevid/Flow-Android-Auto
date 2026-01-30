@@ -72,7 +72,13 @@ const nodeTypes = {
     condition: {
         icon: '🔀', title: 'Condition', color: '#ec4899', hasMultipleOutputs: true,
         params: [
-            { name: 'check_text', type: 'text', label: 'Check Text Exists' }
+            { name: 'check_text', type: 'text', label: 'Check Text on Screen' },
+            { name: 'check_data', type: 'text', label: 'Or Check Data Key' },
+            { name: 'check_value', type: 'text', label: 'Compare Value' },
+            {
+                name: 'operator', type: 'select', label: 'Operator',
+                options: ['exists', 'not_exists', 'equals', 'contains', 'not_contains'], default: 'exists'
+            }
         ]
     },
     otp: {
@@ -1037,9 +1043,23 @@ function renderConnections() {
     const svg = document.getElementById('connections');
     svg.innerHTML = '';
 
-    const containerRect = document.querySelector('.canvas-container').getBoundingClientRect();
     const canvas = document.getElementById('canvas');
     const canvasRect = canvas.getBoundingClientRect();
+
+    // Collect all node bounding boxes for obstacle avoidance
+    const nodeBoxes = [];
+    document.querySelectorAll('.node').forEach(node => {
+        const rect = node.getBoundingClientRect();
+        nodeBoxes.push({
+            id: node.dataset.id,
+            left: (rect.left - canvasRect.left) / state.scale,
+            top: (rect.top - canvasRect.top) / state.scale,
+            right: (rect.right - canvasRect.left) / state.scale,
+            bottom: (rect.bottom - canvasRect.top) / state.scale,
+            width: rect.width / state.scale,
+            height: rect.height / state.scale
+        });
+    });
 
     state.connections.forEach(conn => {
         const fromNode = document.querySelector(`.node[data-id="${conn.from}"]`);
@@ -1058,20 +1078,25 @@ function renderConnections() {
         const fromRect = fromPort.getBoundingClientRect();
         const toRect = toPort.getBoundingClientRect();
 
-        // Account for zoom scale - coordinates from getBoundingClientRect are already scaled
-        // so we need to convert them to canvas coordinates
+        // Convert to canvas coordinates
         const x1 = (fromRect.left + fromRect.width / 2 - canvasRect.left) / state.scale;
         const y1 = (fromRect.top + fromRect.height / 2 - canvasRect.top) / state.scale;
         const x2 = (toRect.left + toRect.width / 2 - canvasRect.left) / state.scale;
         const y2 = (toRect.top + toRect.height / 2 - canvasRect.top) / state.scale;
 
-        // Bezier curve
-        const midX = (x1 + x2) / 2;
+        // Get node boxes for source and target
+        const fromBox = nodeBoxes.find(b => b.id === conn.from);
+        const toBox = nodeBoxes.find(b => b.id === conn.to);
+
+        // Calculate smart route path
+        const pathD = calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn);
+
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', `M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}`);
+        path.setAttribute('d', pathD);
         path.setAttribute('stroke', conn.fromPort === 'yes' ? '#4ade80' :
             conn.fromPort === 'no' ? '#ef4444' : '#e94560');
         path.setAttribute('stroke-width', '3');
+        path.setAttribute('fill', 'none');
         path.style.cursor = 'pointer';
         path.style.pointerEvents = 'stroke';
         path.style.transition = 'stroke-width 0.2s';
@@ -1097,6 +1122,290 @@ function renderConnections() {
 
         svg.appendChild(path);
     });
+}
+
+// Smart routing algorithm that avoids nodes
+function calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn) {
+    const MARGIN = 25; // Margin around nodes
+    const CURVE_RADIUS = 12; // Radius for rounded corners
+
+    // Exclude source and target nodes from obstacles
+    const obstacles = nodeBoxes.filter(b => b.id !== conn.from && b.id !== conn.to);
+
+    // Determine relative positions
+    const goingRight = x2 > x1;
+    const goingDown = y2 > y1;
+
+    // Simple case: direct horizontal connection (nodes on same row)
+    if (Math.abs(y1 - y2) < 50 && goingRight) {
+        // Check if path is clear
+        const pathClear = !obstacles.some(obs =>
+            lineIntersectsBox(x1, y1, x2, y2, obs, MARGIN)
+        );
+
+        if (pathClear) {
+            return `M ${x1} ${y1} L ${x2} ${y2}`;
+        }
+    }
+
+    // Calculate orthogonal path with obstacle avoidance
+    const waypoints = calculateOrthogonalPath(x1, y1, x2, y2, fromBox, toBox, obstacles, MARGIN);
+
+    // Build path string with rounded corners
+    return buildRoundedPath(waypoints, CURVE_RADIUS);
+}
+
+// Calculate orthogonal (right-angle) path avoiding obstacles
+function calculateOrthogonalPath(x1, y1, x2, y2, fromBox, toBox, obstacles, margin) {
+    const points = [[x1, y1]];
+
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+
+    // Determine exit and entry directions
+    // Output ports are typically on right/bottom, input ports on left/top
+
+    if (Math.abs(dy) < 30 && dx > 0) {
+        // Same row, going right - simple horizontal
+        points.push([x2, y2]);
+    } else if (dx > 0 && dy > 0) {
+        // Target is down-right
+        // Go right first, then down
+        const exitX = fromBox ? fromBox.right + margin : x1 + 30;
+        const entryY = toBox ? toBox.top - margin : y2 - 30;
+
+        // Check for obstacles and find clear path
+        const midX = findClearVerticalChannel(exitX, x2, y1, y2, obstacles, margin);
+
+        points.push([midX, y1]); // Go right
+        points.push([midX, y2]); // Go down
+        points.push([x2, y2]);   // Go left to target
+
+    } else if (dx > 0 && dy < 0) {
+        // Target is up-right
+        const midX = findClearVerticalChannel(x1 + 30, x2, y2, y1, obstacles, margin);
+
+        points.push([midX, y1]); // Go right
+        points.push([midX, y2]); // Go up
+        points.push([x2, y2]);   // Go left to target
+
+    } else if (dx <= 0 && dy > 0) {
+        // Target is down-left (wrap around)
+        const belowFromY = fromBox ? fromBox.bottom + margin : y1 + 60;
+        const aboveToY = toBox ? toBox.top - margin : y2 - 30;
+        const rightOfFrom = fromBox ? fromBox.right + margin : x1 + 30;
+        const leftOfTo = toBox ? toBox.left - margin : x2 - 30;
+
+        // Route: right -> down -> left -> down -> to target
+        points.push([rightOfFrom, y1]);
+
+        // Find a Y level that's clear
+        const clearY = findClearHorizontalChannel(belowFromY, aboveToY, rightOfFrom, leftOfTo, obstacles, margin);
+
+        points.push([rightOfFrom, clearY]);
+        points.push([leftOfTo, clearY]);
+        points.push([leftOfTo, y2]);
+        points.push([x2, y2]);
+
+    } else if (dx <= 0 && dy < 0) {
+        // Target is up-left (wrap around)
+        const belowToY = toBox ? toBox.bottom + margin : y2 + 60;
+        const aboveFromY = fromBox ? fromBox.top - margin : y1 - 30;
+        const rightOfFrom = fromBox ? fromBox.right + margin : x1 + 30;
+        const leftOfTo = toBox ? toBox.left - margin : x2 - 30;
+
+        // Route: right -> up -> left -> up -> to target
+        points.push([rightOfFrom, y1]);
+
+        const clearY = findClearHorizontalChannel(aboveFromY, belowToY, Math.min(leftOfTo, rightOfFrom), Math.max(leftOfTo, rightOfFrom), obstacles, margin);
+
+        points.push([rightOfFrom, clearY]);
+        points.push([leftOfTo, clearY]);
+        points.push([leftOfTo, y2]);
+        points.push([x2, y2]);
+
+    } else {
+        // Default: direct with offset
+        const midY = (y1 + y2) / 2;
+        points.push([x1, midY]);
+        points.push([x2, midY]);
+        points.push([x2, y2]);
+    }
+
+    // Clean up redundant points (same x or y as neighbors)
+    return simplifyPath(points);
+}
+
+// Find a vertical channel (x position) that's clear of obstacles
+function findClearVerticalChannel(minX, maxX, minY, maxY, obstacles, margin) {
+    const startX = Math.min(minX, maxX);
+    const endX = Math.max(minX, maxX);
+    const startY = Math.min(minY, maxY);
+    const endY = Math.max(minY, maxY);
+
+    // Try middle first
+    let testX = (startX + endX) / 2;
+
+    // Check if this x position intersects any obstacle
+    const intersects = (x) => obstacles.some(obs =>
+        x >= obs.left - margin &&
+        x <= obs.right + margin &&
+        !(startY > obs.bottom + margin || endY < obs.top - margin)
+    );
+
+    if (!intersects(testX)) return testX;
+
+    // Try positions at every 40px
+    for (let x = startX; x <= endX; x += 40) {
+        if (!intersects(x)) return x;
+    }
+
+    // Fallback: use midpoint anyway
+    return testX;
+}
+
+// Find a horizontal channel (y position) that's clear of obstacles
+function findClearHorizontalChannel(minY, maxY, minX, maxX, obstacles, margin) {
+    const startY = Math.min(minY, maxY);
+    const endY = Math.max(minY, maxY);
+    const startX = Math.min(minX, maxX);
+    const endX = Math.max(minX, maxX);
+
+    // Try middle first
+    let testY = (startY + endY) / 2;
+
+    // Check if this y position intersects any obstacle
+    const intersects = (y) => obstacles.some(obs =>
+        y >= obs.top - margin &&
+        y <= obs.bottom + margin &&
+        !(startX > obs.right + margin || endX < obs.left - margin)
+    );
+
+    if (!intersects(testY)) return testY;
+
+    // Try positions at every 40px
+    for (let y = startY; y <= endY; y += 40) {
+        if (!intersects(y)) return y;
+    }
+
+    // Fallback: go further down/up to find clear space
+    for (let y = endY + 40; y <= endY + 200; y += 40) {
+        if (!intersects(y)) return y;
+    }
+    for (let y = startY - 40; y >= startY - 200; y -= 40) {
+        if (!intersects(y)) return y;
+    }
+
+    return testY;
+}
+
+// Check if a line segment intersects a box
+function lineIntersectsBox(x1, y1, x2, y2, box, margin) {
+    const left = box.left - margin;
+    const right = box.right + margin;
+    const top = box.top - margin;
+    const bottom = box.bottom + margin;
+
+    // Simple bounding box check for horizontal/vertical lines
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    // Check if line bounding box overlaps with obstacle box
+    return !(maxX < left || minX > right || maxY < top || minY > bottom);
+}
+
+// Remove redundant points from path
+function simplifyPath(points) {
+    if (points.length <= 2) return points;
+
+    const simplified = [points[0]];
+
+    for (let i = 1; i < points.length - 1; i++) {
+        const prev = simplified[simplified.length - 1];
+        const curr = points[i];
+        const next = points[i + 1];
+
+        // Keep point if direction changes
+        const dx1 = curr[0] - prev[0];
+        const dy1 = curr[1] - prev[1];
+        const dx2 = next[0] - curr[0];
+        const dy2 = next[1] - curr[1];
+
+        // Direction changed if one delta becomes zero while other becomes non-zero
+        const horizontal1 = Math.abs(dx1) > Math.abs(dy1);
+        const horizontal2 = Math.abs(dx2) > Math.abs(dy2);
+
+        if (horizontal1 !== horizontal2 || (dx1 === 0 && dy1 === 0) || (dx2 === 0 && dy2 === 0)) {
+            // Skip point if it's essentially the same as previous
+            if (Math.abs(curr[0] - prev[0]) > 1 || Math.abs(curr[1] - prev[1]) > 1) {
+                simplified.push(curr);
+            }
+        } else if (horizontal1 === horizontal2) {
+            // Same direction - might be able to skip, but keep if positions differ significantly
+            if (horizontal1) {
+                if (Math.abs(curr[1] - prev[1]) > 1) simplified.push(curr);
+            } else {
+                if (Math.abs(curr[0] - prev[0]) > 1) simplified.push(curr);
+            }
+        }
+    }
+
+    simplified.push(points[points.length - 1]);
+    return simplified;
+}
+
+// Build SVG path with rounded corners
+function buildRoundedPath(points, radius) {
+    if (points.length < 2) return '';
+    if (points.length === 2) {
+        return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;
+    }
+
+    let d = `M ${points[0][0]} ${points[0][1]}`;
+
+    for (let i = 1; i < points.length - 1; i++) {
+        const prev = points[i - 1];
+        const curr = points[i];
+        const next = points[i + 1];
+
+        // Calculate vectors
+        const dx1 = curr[0] - prev[0];
+        const dy1 = curr[1] - prev[1];
+        const dx2 = next[0] - curr[0];
+        const dy2 = next[1] - curr[1];
+
+        const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+        const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+        // Adjust radius based on segment lengths
+        const adjustedRadius = Math.min(radius, len1 / 2, len2 / 2);
+
+        if (adjustedRadius < 2) {
+            // Too small for curve, just line to
+            d += ` L ${curr[0]} ${curr[1]}`;
+            continue;
+        }
+
+        // Calculate start and end points of the curve
+        const startX = curr[0] - (dx1 / len1) * adjustedRadius;
+        const startY = curr[1] - (dy1 / len1) * adjustedRadius;
+        const endX = curr[0] + (dx2 / len2) * adjustedRadius;
+        const endY = curr[1] + (dy2 / len2) * adjustedRadius;
+
+        // Line to start of curve
+        d += ` L ${startX} ${startY}`;
+
+        // Quadratic curve through the corner
+        d += ` Q ${curr[0]} ${curr[1]} ${endX} ${endY}`;
+    }
+
+    // Final line to last point
+    const last = points[points.length - 1];
+    d += ` L ${last[0]} ${last[1]}`;
+
+    return d;
 }
 
 // Delete a specific connection
@@ -1253,6 +1562,15 @@ function handleStreamMessage(msg, executionOrder) {
         // Single flow messages
     } else if (msg.type === 'step_start') {
         const stepName = msg.step;
+
+        // Reset visual status if requested (e.g. new loop iteration)
+        if (msg.reset_flow) {
+            document.querySelectorAll('.node').forEach(n => {
+                n.classList.remove('node-success', 'node-error');
+            });
+            addLog(`\n🔄 Starting new data iteration...`, 'info');
+        }
+
         addLog(`⏳ Executing: ${stepName}...`, 'info');
 
         // Highlight node

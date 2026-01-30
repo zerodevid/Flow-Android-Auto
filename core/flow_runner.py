@@ -718,10 +718,105 @@ class StepRegistry:
                 print(f"  ✗ AI Error: {e}")
                 return StepResult.FAILED
         
+        # Condition - check if text exists on screen or in data
+        def action_condition(ctx: StepContext, check_text: str = None,
+                            check_data: str = None, check_value: str = None,
+                            operator: str = "exists", **kwargs) -> StepResult:
+            """
+            Check a condition and return result.
+            - check_text: Check if this text exists on current screen
+            - check_data: Check a key in context data
+            - check_value: Value to compare against (for check_data)
+            - operator: 'exists', 'not_exists', 'equals', 'contains', 'not_contains'
+            
+            Returns SUCCESS if condition is TRUE, SKIPPED if FALSE
+            """
+            result = False
+            
+            if check_text:
+                # Check if text exists on screen
+                try:
+                    elements = self.portal.get_elements()
+                    flat = self.portal._flatten_elements(elements)
+                    screen_texts = [e.text.lower() for e in flat if e.text]
+                    check_lower = check_text.lower()
+                    
+                    text_found = any(check_lower in txt for txt in screen_texts)
+                    
+                    if operator == "exists":
+                        result = text_found
+                    elif operator == "not_exists":
+                        result = not text_found
+                    else:
+                        result = text_found if operator == "exists" else not text_found
+                    
+                    print(f"  🔀 Condition: '{check_text}' {operator} on screen = {result}")
+                except Exception as e:
+                    print(f"  ⚠️ Condition check error: {e}")
+                    result = False
+            
+            elif check_data:
+                # Check a value in context data
+                data_value = ctx.get(check_data, "")
+                
+                if operator == "exists":
+                    result = bool(data_value)
+                elif operator == "not_exists":
+                    result = not bool(data_value)
+                elif operator == "equals" and check_value:
+                    result = str(data_value) == str(check_value)
+                elif operator == "contains" and check_value:
+                    result = str(check_value) in str(data_value)
+                elif operator == "not_contains" and check_value:
+                    result = str(check_value) not in str(data_value)
+                else:
+                    result = bool(data_value)
+                
+                print(f"  🔀 Condition: data[{check_data}] {operator} = {result}")
+            
+            # Store result in context for potential use
+            ctx.set("_condition_result", result)
+            
+            if result:
+                print(f"  ✓ Condition: TRUE")
+                return StepResult.SUCCESS
+            else:
+                print(f"  ✗ Condition: FALSE")
+                return StepResult.SKIPPED  # SKIPPED means condition not met
+        
+        # Data Source Iterator
+        def action_data_source(ctx: StepContext, rows: List[Dict] = None, 
+                               columns: List[str] = None, **kwargs) -> StepResult:
+            if not rows:
+                print("  ⚠️ No data rows provided")
+                return StepResult.FAILED
+
+            # Get current index (stateful iteration)
+            index = ctx.get("_data_source_index", 0)
+            
+            if index < len(rows):
+                # Load current row data
+                row_data = rows[index]
+                for k, v in row_data.items():
+                    ctx.set(k, v)
+                
+                print(f"  📊 Data Source: Loaded row {index + 1}/{len(rows)}")
+                print(f"     Data: {row_data}")
+                
+                # Increment for next visit
+                ctx.set("_data_source_index", index + 1)
+                return StepResult.SUCCESS
+            else:
+                # End of data
+                print(f"  🏁 Data Source: No more rows (finished {len(rows)})")
+                return StepResult.FAILED
+
         self._actions["shell"] = action_shell
         self._actions["close"] = action_close
         self._actions["clear_data"] = action_clear_data
         self._actions["ask_ai"] = action_ask_ai
+        self._actions["condition"] = action_condition
+        self._actions["data_source"] = action_data_source
     
     def register(self, name: str, action: Callable):
         """Register a custom action"""
@@ -866,6 +961,173 @@ class FlowRunner:
         
         return ctx
     
+    def run_graph(self, flow_data: Dict, session_id: str = "default",
+                  initial_data: Optional[Dict] = None,
+                  callback: Optional[Callable[[Dict], None]] = None,
+                  max_iterations: int = 100) -> StepContext:
+        """
+        Run a flow using graph-based execution with branching support.
+        
+        Args:
+            flow_data: Full flow data including _editor with nodes and connections
+            session_id: Session ID for OTP
+            initial_data: Initial data to set in context
+            callback: Function to call with progress updates
+            max_iterations: Max iterations to prevent infinite loops
+        
+        Returns:
+            StepContext with results
+        """
+        self._stop_flag = False
+        ctx = StepContext(
+            portal=self.portal,
+            session_id=session_id,
+            data=initial_data or {}
+        )
+        
+        # Extract editor data
+        editor = flow_data.get("_editor", {})
+        nodes = {n["id"]: n for n in editor.get("nodes", [])}
+        connections = editor.get("connections", [])
+        
+        # Build connection map: from_node -> {port: to_node}
+        conn_map = {}
+        for conn in connections:
+            from_id = conn["from"]
+            from_port = conn.get("fromPort", "out")
+            to_id = conn["to"]
+            
+            if from_id not in conn_map:
+                conn_map[from_id] = {}
+            conn_map[from_id][from_port] = to_id
+        
+        print(f"\n{'='*60}")
+        print(f"🚀 Running flow (graph mode): {len(nodes)} nodes")
+        print(f"   Session: {session_id}")
+        print(f"{'='*60}\n")
+        
+        # Start from 'start' node
+        current_node_id = "start"
+        step_count = 0
+        iteration = 0
+        
+        while iteration < max_iterations:
+            iteration += 1
+            
+            # Check stop flag
+            if self._stop_flag:
+                print("🛑 Flow stopped by user")
+                if callback:
+                    callback({"type": "stopped", "step": "Flow stopped"})
+                break
+            
+            # Find next node from connections
+            if current_node_id not in conn_map:
+                print(f"🏁 End of flow (no more connections)")
+                break
+            
+            # For start node, just follow output
+            if current_node_id == "start":
+                next_id = conn_map.get(current_node_id, {}).get("out")
+                if not next_id:
+                    print("⚠ No node connected to start")
+                    break
+                current_node_id = next_id
+                continue
+            
+            # Get current node
+            node = nodes.get(current_node_id)
+            if not node:
+                print(f"⚠ Node {current_node_id} not found")
+                break
+            
+            node_type = node.get("type", "")
+            params = node.get("params", {})
+            step_count += 1
+            
+            step_name = f"{node_type}: {params.get('text', params.get('prompt', params.get('package', '')))[:30]}"
+            print(f"[Step {step_count}] {node.get('id')} - {node_type}")
+            
+            # Notify start
+            if callback:
+                # If this is a data source node starting, signal frontend to reset visual statuses
+                # This creates the effect of "clearing the path" for the new loop iteration
+                reset_flag = (node_type == 'data_source')
+                
+                callback({
+                    "type": "step_start",
+                    "index": step_count - 1,
+                    "step": step_name,
+                    "id": node.get("id"),
+                    "reset_flow": reset_flag
+                })
+            
+            # Wait before
+            time.sleep(0.3)
+            
+            # Execute the action
+            result = self.registry.execute(node_type, ctx, params)
+            
+            # Record result
+            ctx.step_results.append({
+                "id": node.get("id"),
+                "step": step_name,
+                "action": node_type,
+                "result": result.value,
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            # Notify end
+            if callback:
+                callback({
+                    "type": "step_end",
+                    "index": step_count - 1,
+                    "step": step_name,
+                    "result": result.value,
+                    "id": node.get("id")
+                })
+            
+            # Wait after
+            time.sleep(0.2)
+            
+            # Determine next node based on result
+            node_conns = conn_map.get(current_node_id, {})
+            
+            if node_type == "condition":
+                # Condition node: follow yes/no based on result
+                if result == StepResult.SUCCESS:
+                    # Condition was TRUE, follow "yes" or "out"
+                    next_id = node_conns.get("yes") or node_conns.get("out")
+                    print(f"  → Following YES branch")
+                else:
+                    # Condition was FALSE, follow "no"
+                    next_id = node_conns.get("no")
+                    print(f"  → Following NO branch")
+            else:
+                # Regular node: follow "out"
+                next_id = node_conns.get("out")
+                
+                # If failed and not optional, stop
+                if result == StepResult.FAILED:
+                    print(f"  ✗ Failed - stopping flow")
+                    break
+            
+            if not next_id:
+                print(f"🏁 End of branch")
+                break
+            
+            current_node_id = next_id
+        
+        if iteration >= max_iterations:
+            print(f"⚠ Max iterations ({max_iterations}) reached - possible infinite loop")
+        
+        print(f"\n{'='*60}")
+        success_count = sum(1 for r in ctx.step_results if r["result"] == "success")
+        print(f"✓ Flow complete: {success_count}/{len(ctx.step_results)} steps executed")
+        print(f"{'='*60}\n")
+        
+        return ctx
+    
     def run_batch(self, steps: List[Dict], data_rows: List[Dict],
                   session_prefix: str = "batch",
                   callback: Optional[Callable[[Dict], None]] = None) -> List[StepContext]:
@@ -883,6 +1145,12 @@ class FlowRunner:
         """
         results = []
         total_rows = len(data_rows)
+        
+        # Check if flow has explicit "next_row" node
+        # If yes, we only continue if that node is executed
+        has_next_row_control = any(s.get("action") == "next_row" for s in steps)
+        if has_next_row_control:
+            print(f"⚡ Flow has 'next_row' explicit control enabled")
         
         for row_idx, row_data in enumerate(data_rows):
             if self._stop_flag:
@@ -908,6 +1176,9 @@ class FlowRunner:
             print(f"{'='*60}")
             
             # Run flow with this row's data
+            # Determine if we should use graph mode or linear mode
+            # For now, default to run() as steps passed are usually linear
+            # TODO: Improve this to support graph execution inside batch
             ctx = self.run(steps, session_id, initial_data=row_data, callback=callback)
             results.append(ctx)
             
@@ -921,6 +1192,15 @@ class FlowRunner:
                     "success": success_count == len(ctx.step_results),
                     "results": ctx.step_results
                 })
+            
+            # Check loop condition
+            if has_next_row_control:
+                should_continue = ctx.get("_batch_continue", False)
+                if not should_continue:
+                    print(f"🛑 Batch stopped: 'Next Row' node not reached (Row {row_idx + 1})")
+                    if callback:
+                        callback({"type": "batch_stopped", "row": row_idx, "reason": "no_next_row_trigger"})
+                    break
         
         print(f"\n{'='*60}")
         print(f"✅ Batch complete: {len(results)}/{total_rows} rows processed")

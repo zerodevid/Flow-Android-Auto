@@ -172,11 +172,11 @@
       }
     },
     {
-      "name": "Tap: Copy key",
-      "action": "tap",
+      "name": "Wait: Copy key",
+      "action": "wait",
       "params": {
-        "text": "Copy key",
-        "timeout": 10
+        "timeout": 10,
+        "text": "Copy key"
       }
     },
     {
@@ -193,6 +193,15 @@
       "params": {
         "index": 23,
         "save_as": "phrase"
+      }
+    },
+    {
+      "name": "Webhook:",
+      "action": "webhook",
+      "params": {
+        "include_data": true,
+        "method": "POST",
+        "url": "https://n8n.zerodev.my.id/webhook-test/data_farcaster"
       }
     },
     {
@@ -411,16 +420,6 @@
         "y": 820
       },
       {
-        "id": "node_18",
-        "params": {
-          "text": "Copy key",
-          "timeout": 10
-        },
-        "type": "tap",
-        "x": 50,
-        "y": 1000
-      },
-      {
         "id": "node_19",
         "params": {
           "index": 24,
@@ -429,7 +428,7 @@
           "text": ""
         },
         "type": "clipboard",
-        "x": 289,
+        "x": 359,
         "y": 1000
       },
       {
@@ -439,7 +438,7 @@
           "save_as": "phrase"
         },
         "type": "clipboard",
-        "x": 547,
+        "x": 617,
         "y": 1000
       },
       {
@@ -458,8 +457,8 @@
           "package": "com.farcaster.mobile"
         },
         "type": "close",
-        "x": 831,
-        "y": 1000
+        "x": 50,
+        "y": 1180
       },
       {
         "id": "node_24",
@@ -468,7 +467,7 @@
           "package": "com.farcaster.mobile"
         },
         "type": "clear_data",
-        "x": 50,
+        "x": 349,
         "y": 1180
       },
       {
@@ -479,6 +478,27 @@
         "type": "launch",
         "x": 470,
         "y": 100
+      },
+      {
+        "id": "node_27",
+        "type": "webhook",
+        "x": 901,
+        "y": 1000,
+        "params": {
+          "include_data": true,
+          "method": "POST",
+          "url": "https://n8n.zerodev.my.id/webhook-test/data_farcaster"
+        }
+      },
+      {
+        "id": "node_28",
+        "type": "wait",
+        "x": 50,
+        "y": 1000,
+        "params": {
+          "timeout": 10,
+          "text": "Copy key"
+        }
       }
     ],
     "connections": [
@@ -567,18 +587,6 @@
         "toPort": "in"
       },
       {
-        "from": "node_17",
-        "fromPort": "out",
-        "to": "node_18",
-        "toPort": "in"
-      },
-      {
-        "from": "node_18",
-        "fromPort": "out",
-        "to": "node_19",
-        "toPort": "in"
-      },
-      {
         "from": "node_19",
         "fromPort": "out",
         "to": "node_21",
@@ -594,18 +602,6 @@
         "from": "node_22",
         "fromPort": "out",
         "to": "node_17",
-        "toPort": "in"
-      },
-      {
-        "from": "node_21",
-        "fromPort": "out",
-        "to": "node_23",
-        "toPort": "in"
-      },
-      {
-        "from": "node_23",
-        "fromPort": "out",
-        "to": "node_24",
         "toPort": "in"
       },
       {
@@ -625,9 +621,39 @@
         "fromPort": "out",
         "to": "node_1",
         "toPort": "in"
+      },
+      {
+        "from": "node_17",
+        "fromPort": "out",
+        "to": "node_28",
+        "toPort": "in"
+      },
+      {
+        "from": "node_28",
+        "fromPort": "out",
+        "to": "node_19",
+        "toPort": "in"
+      },
+      {
+        "from": "node_21",
+        "fromPort": "out",
+        "to": "node_27",
+        "toPort": "in"
+      },
+      {
+        "from": "node_27",
+        "fromPort": "out",
+        "to": "node_23",
+        "toPort": "in"
+      },
+      {
+        "from": "node_23",
+        "fromPort": "out",
+        "to": "node_24",
+        "toPort": "in"
       }
     ]
   },
   "id": "testinf",
-  "updated_at": "2026-01-30T15:36:48.806483"
+  "updated_at": "2026-01-30T16:56:51.578665"
 }

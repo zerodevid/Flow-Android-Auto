@@ -153,8 +153,34 @@ def run_flow(flow_id):
             runner = FlowRunner(get_portal())
             ACTIVE_RUNNERS[flow_id] = runner
             
-            # Use run_file_batch which handles data_source automatically
-            results = runner.run_file_batch(str(path), session_prefix, callback=on_progress)
+            # Load flow data to check for graph mode
+            with open(path) as f:
+                flow_data = json.load(f)
+            
+            # Check if flow has _editor with connections (needed for condition branching)
+            editor = flow_data.get("_editor", {})
+            connections = editor.get("connections", [])
+            
+            # Check if any connection uses yes/no ports (condition branching)
+            has_branching = any(
+                conn.get("fromPort") in ["yes", "no"] 
+                for conn in connections
+            )
+            
+            # Check if flow has data_source (internal iterator)
+            steps = flow_data.get("steps", [])
+            has_data_source = any(s.get("action") == "data_source" for s in steps)
+
+            if has_branching or has_data_source:
+                # Use graph-based execution for conditional flows OR data source loops
+                print("📊 Using graph mode (conditional branching or data source detected)")
+                # If has data source, increase max iterations to allow loops
+                max_iter = 10000 if has_data_source else 200
+                ctx = runner.run_graph(flow_data, session_prefix, callback=on_progress, max_iterations=max_iter)
+                results = [ctx]
+            else:
+                # Use regular batch mode for linear flows
+                results = runner.run_file_batch(str(path), session_prefix, callback=on_progress)
             
             # Send final batch results
             total_success = sum(
