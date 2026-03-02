@@ -12,7 +12,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field, asdict
 
-sys.path.insert(0, '/home/zeroserver/Project/auto_register')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils import connect, DroidrunPortal, Element
 
 

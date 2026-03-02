@@ -11,6 +11,14 @@ import os
 import subprocess
 import re
 
+# Fix Windows console encoding: don't crash on emoji, just replace with '?'
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(errors='replace')
+        sys.stderr.reconfigure(errors='replace')
+    except Exception:
+        pass
+
 # Disable proxy for localhost to avoid timeouts
 os.environ["no_proxy"] = "127.0.0.1,localhost"
 
@@ -18,7 +26,6 @@ os.environ["no_proxy"] = "127.0.0.1,localhost"
 def load_dotenv():
     """Load .env file from project root"""
     env_paths = [
-        '/home/zeroserver/Project/auto_register/.env',
         os.path.join(os.path.dirname(__file__), '..', '.env'),
     ]
     for env_path in env_paths:
@@ -40,8 +47,10 @@ from typing import Optional, Dict, Any, Callable, List
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 
-sys.path.insert(0, '/home/zeroserver/Project/auto_register')
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
 from utils import connect, DroidrunPortal
 from utils.totp import generate_totp, get_totp_with_remaining, wait_for_fresh_totp
 from server.otp_server import start_server, wait_otp, otp_store
@@ -133,7 +142,7 @@ class StepRegistry:
         # Type action
         def action_type(ctx: StepContext, text: str = None, 
                         from_data: str = None, clear: bool = True, 
-                        delay: float = 0, **kwargs) -> StepResult:
+                        delay: float = 0, speed: float = 0, **kwargs) -> StepResult:
             # Delay before action
             if delay > 0:
                 time.sleep(delay)
@@ -142,7 +151,7 @@ class StepRegistry:
             if from_data:
                 value = ctx.get(from_data)
             if value:
-                self.portal.type_text(value, clear_first=clear)
+                self.portal.type_text(value, clear_first=clear, delay_between_keys=speed)
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
@@ -228,14 +237,20 @@ class StepRegistry:
             return StepResult.FAILED
         
         # Press key
-        def action_key(ctx: StepContext, key: str = None, **kwargs) -> StepResult:
+        def action_key(ctx: StepContext, key: str = None, repeat: int = 1, delay: float = 0.5, **kwargs) -> StepResult:
             key_codes = {
                 "enter": 66, "back": 4, "home": 3, "recent": 187,
                 "backspace": 67, "tab": 61, "escape": 111,
+                "up": 19, "down": 20, "left": 21, "right": 22,
+                "ctrl+c": 278, "ctrl+v": 279
             }
             code = key_codes.get(key.lower(), int(key) if key.isdigit() else 0)
             if code:
-                self.portal.press_key(code)
+                repeat_count = max(1, int(repeat))
+                for i in range(repeat_count):
+                    self.portal.press_key(code)
+                    if repeat_count > 1 and i < repeat_count - 1 and delay > 0:
+                        time.sleep(delay)
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
@@ -889,6 +904,222 @@ class StepRegistry:
                 print(f"  ✗ Fingerprint error: {e}")
                 return StepResult.FAILED
 
+        # ==================== SMSBower API Actions ====================
+        
+        SMSBOWER_API = "https://smsbower.app/stubs/handler_api.php"
+        
+        def _sms_api_call(action: str, api_key: str, extra_params: Dict = None) -> str:
+            """Helper: make SMSBower API GET request and return response text"""
+            import urllib.request
+            import urllib.parse
+            
+            params = {"api_key": api_key, "action": action}
+            if extra_params:
+                params.update(extra_params)
+            
+            url = f"{SMSBOWER_API}?{urllib.parse.urlencode(params)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "FlowRunner/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read().decode('utf-8').strip()
+        
+        def _get_sms_api_key(ctx: StepContext) -> str:
+            """Helper: get API key from context"""
+            key = ctx.get("sms_api_key")
+            if not key:
+                print("  ✗ SMSBower API key not found! Add SMS Config node first.")
+                return None
+            return key
+        
+        # SMS Config - save API key to context
+        def action_sms_config(ctx: StepContext, api_key: str = None, 
+                              save_as: str = "sms_api_key", **kwargs) -> StepResult:
+            if not api_key:
+                print("  ✗ API key is required")
+                return StepResult.FAILED
+            
+            ctx.set(save_as, api_key)
+            print(f"  🔑 SMSBower API key configured")
+            return StepResult.SUCCESS
+        
+        # SMS Get Number - buy a virtual phone number
+        def action_sms_get_number(ctx: StepContext, service: str = None,
+                                   country: str = "0", max_price: str = None,
+                                   save_as: str = "sms_phone", **kwargs) -> StepResult:
+            api_key = _get_sms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            if not service:
+                print("  ✗ Service code is required (e.g. 'go' for Google)")
+                return StepResult.FAILED
+            
+            print(f"  📱 Getting number for service: {service}, country: {country}")
+            
+            try:
+                params = {"service": service, "country": str(country)}
+                if max_price:
+                    params["maxPrice"] = str(max_price)
+                
+                result = _sms_api_call("getNumber", api_key, params)
+                
+                if result.startswith("ACCESS_NUMBER:"):
+                    parts = result.split(":")
+                    activation_id = parts[1]
+                    phone_number = parts[2]
+                    
+                    ctx.set("sms_activation_id", activation_id)
+                    ctx.set(save_as, phone_number)
+                    print(f"  ✓ Number: {phone_number} (ID: {activation_id})")
+                    return StepResult.SUCCESS
+                
+                elif "NO_NUMBERS" in result:
+                    print(f"  ✗ No numbers available for service={service}, country={country}")
+                elif "NO_BALANCE" in result:
+                    print(f"  ✗ Insufficient balance")
+                elif "BAD_SERVICE" in result:
+                    print(f"  ✗ Invalid service code: {service}")
+                elif "BAD_KEY" in result:
+                    print(f"  ✗ Invalid API key")
+                else:
+                    print(f"  ✗ Error: {result}")
+                
+                return StepResult.FAILED
+                
+            except Exception as e:
+                print(f"  ✗ SMS API error: {e}")
+                return StepResult.FAILED
+        
+        # SMS Get Code - poll for incoming SMS
+        def action_sms_get_code(ctx: StepContext, from_data: str = "sms_activation_id",
+                                 timeout: float = 120, save_as: str = "sms_code",
+                                 **kwargs) -> StepResult:
+            api_key = _get_sms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            activation_id = ctx.get(from_data)
+            if not activation_id:
+                print(f"  ✗ Activation ID not found in context key: {from_data}")
+                return StepResult.FAILED
+            
+            print(f"  ⏳ Waiting for SMS code (ID: {activation_id}, timeout: {timeout}s)...")
+            
+            start_time = time.time()
+            poll_interval = 3
+            last_code = None
+            
+            while time.time() - start_time < timeout:
+                try:
+                    result = _sms_api_call("getStatus", api_key, {"id": str(activation_id)})
+                    
+                    if result.startswith("STATUS_OK:"):
+                        code = result.split(":", 1)[1]
+                        ctx.set(save_as, code)
+                        elapsed = time.time() - start_time
+                        print(f"  ✓ SMS code received: {code} ({elapsed:.0f}s)")
+                        return StepResult.SUCCESS
+                    
+                    elif result.startswith("STATUS_WAIT_RETRY:"):
+                        last_code = result.split(":", 1)[1]
+                        print(f"  🔄 Waiting for new SMS (last: {last_code})...")
+                    
+                    elif result == "STATUS_WAIT_CODE":
+                        elapsed = time.time() - start_time
+                        print(f"  ⏳ Waiting... ({elapsed:.0f}s)")
+                    
+                    elif result == "STATUS_CANCEL":
+                        print(f"  ✗ Activation was cancelled")
+                        return StepResult.FAILED
+                    
+                    elif "NO_ACTIVATION" in result:
+                        print(f"  ✗ Invalid activation ID: {activation_id}")
+                        return StepResult.FAILED
+                    
+                    else:
+                        print(f"  ⚠️ Unknown status: {result}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Poll error: {e}")
+                
+                time.sleep(poll_interval)
+            
+            print(f"  ✗ SMS timeout after {timeout}s")
+            return StepResult.FAILED
+        
+        # SMS Set Status - change activation status
+        def action_sms_set_status(ctx: StepContext, from_data: str = "sms_activation_id",
+                                   status: str = "6", **kwargs) -> StepResult:
+            api_key = _get_sms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            activation_id = ctx.get(from_data)
+            if not activation_id:
+                print(f"  ✗ Activation ID not found in context key: {from_data}")
+                return StepResult.FAILED
+            
+            status_labels = {"6": "Confirm", "8": "Cancel", "3": "Request another SMS"}
+            label = status_labels.get(str(status), str(status))
+            print(f"  📋 Setting status: {label} (ID: {activation_id})")
+            
+            try:
+                result = _sms_api_call("setStatus", api_key, {
+                    "id": str(activation_id), 
+                    "status": str(status)
+                })
+                
+                if "ACCESS_READY" in result:
+                    print(f"  ✓ Phone ready for SMS")
+                    return StepResult.SUCCESS
+                elif "ACCESS_RETRY_GET" in result:
+                    print(f"  ✓ Waiting for new SMS")
+                    return StepResult.SUCCESS
+                elif "ACCESS_ACTIVATION" in result:
+                    print(f"  ✓ Activation confirmed")
+                    return StepResult.SUCCESS
+                elif "ACCESS_CANCEL" in result:
+                    print(f"  ✓ Activation cancelled")
+                    return StepResult.SUCCESS
+                elif "EARLY_CANCEL_DENIED" in result:
+                    print(f"  ✗ Cannot cancel yet (wait 2 min after purchase)")
+                    return StepResult.FAILED
+                elif "BAD_STATUS" in result:
+                    print(f"  ✗ Invalid status: {status}")
+                    return StepResult.FAILED
+                else:
+                    print(f"  ⚠️ Response: {result}")
+                    return StepResult.SUCCESS
+                    
+            except Exception as e:
+                print(f"  ✗ SMS API error: {e}")
+                return StepResult.FAILED
+        
+        # SMS Get Balance - check account balance
+        def action_sms_get_balance(ctx: StepContext, save_as: str = "sms_balance",
+                                    **kwargs) -> StepResult:
+            api_key = _get_sms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            try:
+                result = _sms_api_call("getBalance", api_key)
+                
+                if result.startswith("ACCESS_BALANCE:"):
+                    balance = result.split(":")[1]
+                    ctx.set(save_as, balance)
+                    print(f"  💰 SMSBower Balance: {balance}")
+                    return StepResult.SUCCESS
+                elif "BAD_KEY" in result:
+                    print(f"  ✗ Invalid API key")
+                    return StepResult.FAILED
+                else:
+                    print(f"  ✗ Error: {result}")
+                    return StepResult.FAILED
+                    
+            except Exception as e:
+                print(f"  ✗ SMS API error: {e}")
+                return StepResult.FAILED
+
         self._actions["shell"] = action_shell
         self._actions["close"] = action_close
         self._actions["clear_data"] = action_clear_data
@@ -896,6 +1127,228 @@ class StepRegistry:
         self._actions["condition"] = action_condition
         self._actions["data_source"] = action_data_source
         self._actions["fingerprint"] = action_fingerprint
+        self._actions["sms_config"] = action_sms_config
+        self._actions["sms_get_number"] = action_sms_get_number
+        self._actions["sms_get_code"] = action_sms_get_code
+        self._actions["sms_set_status"] = action_sms_set_status
+        self._actions["sms_get_balance"] = action_sms_get_balance
+
+        def _resolve_executable_path(exe_name: str) -> str:
+            import shutil
+            import os
+            # If absolute path or exists in PATH
+            if os.path.isabs(exe_name) or shutil.which(exe_name):
+                return exe_name
+            
+            # Common LDPlayer installation paths
+            drives = ["C:", "D:", "E:"]
+            folders = [
+                r"\LDPlayer\LDPlayer9",
+                r"\LDPlayer\LDPlayer4",
+                r"\XuanZhi\LDPlayer"
+            ]
+            for drive in drives:
+                for folder in folders:
+                    full_path = f"{drive}{folder}\\{exe_name}"
+                    if os.path.exists(full_path):
+                        return full_path
+            return exe_name
+
+        # LDPlayer Commands
+        def action_ldplayer(ctx: StepContext, ld_action: str = "launch",
+                        name_or_id: str = "0", new_name: str = "",
+                        console_path: str = "dnconsole.exe", **kwargs) -> StepResult:
+            """
+            Execute LDPlayer console commands.
+            Commands: launch, quit, quitall, add, copy, remove, rename, reboot
+            """
+            import subprocess
+            
+            resolved_path = _resolve_executable_path(console_path)
+            cmd = [resolved_path, ld_action]
+            
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            
+            if ld_action in ["launch", "quit", "remove", "reboot"]:
+                cmd.extend([flag, str(name_or_id)])
+                
+            elif ld_action == "add":
+                if name_or_id and str(name_or_id) != "0":
+                    cmd.extend(["--name", str(name_or_id)])
+                    
+            elif ld_action == "copy":
+                cmd.extend(["--name", str(new_name), "--from", str(name_or_id)])
+                
+            elif ld_action == "rename":
+                cmd.extend([flag, str(name_or_id), "--title", str(new_name)])
+
+            if ld_action == "quitall":
+                cmd = [resolved_path, "quitall"]
+                
+            print(f"  🎮 LDPlayer: {' '.join(cmd)}")
+            try:
+                timeout = 60 if ld_action in ["copy", "add"] else 30
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True, text=True, timeout=timeout
+                )
+                if result.returncode == 0:
+                    print(f"  ✓ LDPlayer '{ld_action}' executed")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ✗ LDPlayer error: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                print(f"    Ensure {console_path} is in PATH or provide full path.")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ldplayer"] = action_ldplayer
+
+        # LDPlayer Device Props
+        def action_ld_device_props(ctx: StepContext, name_or_id: str = "0",
+                                   imei: str = "auto", manufacturer: str = "auto",
+                                   model: str = "auto", pnumber: str = "",
+                                   console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            
+            resolved_path = _resolve_executable_path(console_path)
+            cmd = [resolved_path, "modify", flag, str(name_or_id)]
+            
+            if imei:
+                cmd.extend(["--imei", str(imei).lower() if str(imei).lower() == "auto" else str(imei)])
+            if manufacturer:
+                cmd.extend(["--manufacturer", str(manufacturer).lower() if str(manufacturer).lower() == "auto" else str(manufacturer)])
+            if model:
+                cmd.extend(["--model", str(model).lower() if str(model).lower() == "auto" else str(model)])
+            if pnumber:
+                cmd.extend(["--pnumber", str(pnumber)])
+                
+            print(f"  📱 LD Device Props: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True, text=True, timeout=30
+                )
+                if result.returncode == 0:
+                    print(f"  ✓ LDPlayer device properties modified")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ✗ LDPlayer error: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                print(f"    Ensure {console_path} is in PATH or provide full path.")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_device_props"] = action_ld_device_props
+
+        # Write to TXT - append a row of data to a text file each time this node is hit
+        def action_write_txt(ctx: StepContext, file_path: str = "output.txt",
+                              content: str = "", columns: str = "",
+                              separator: str = "\t",
+                              include_timestamp: bool = True, **kwargs) -> StepResult:
+            """
+            Write context data as a new row to a TXT file.
+            Supports two modes:
+            
+            1. Format mode (use 'content' param):
+               Use {key} placeholders to reference saved data.
+               Example: "{email},{sms_balance},{sms_phone}"
+               Each {key} is replaced with the value from context (e.g. from save_as).
+               
+            2. Columns mode (use 'columns' param):
+               Comma-separated list of data keys. E.g. "email,sms_balance,sms_phone"
+               Writes as separator-delimited columns with header row.
+               If empty, writes ALL context data.
+            
+            Parameters:
+            - file_path: Path to output file (relative to project root or absolute)
+            - content: Format template with {key} placeholders (priority over columns)
+            - columns: Comma-separated data keys for column mode
+            - separator: Column separator for columns mode (default: tab)
+            - include_timestamp: Add timestamp column/prefix
+            """
+            print(f"  📄 DEBUG write_txt: file_path={file_path}, content={repr(content)}, columns={repr(columns)}, separator={repr(separator)}, include_timestamp={include_timestamp}")
+            print(f"  📄 DEBUG context data keys: {list(ctx.data.keys())}")
+            try:
+                # Resolve file path
+                if not os.path.isabs(file_path):
+                    file_path = os.path.join(str(BASE_DIR), file_path)
+                
+                # Ensure directory exists
+                dir_path = os.path.dirname(file_path)
+                if dir_path:
+                    os.makedirs(dir_path, exist_ok=True)
+                
+                file_exists = os.path.exists(file_path)
+                
+                # Mode 1: Format template with {key} placeholders
+                if content:
+                    # Replace all {key} placeholders with context data
+                    line = content
+                    for key, value in ctx.data.items():
+                        line = line.replace(f"{{{key}}}", str(value))
+                    
+                    # Add timestamp prefix if enabled
+                    if include_timestamp:
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        line = f"{timestamp}{separator}{line}"
+                    
+                    with open(file_path, "a", encoding="utf-8") as f:
+                        f.write(line + "\n")
+                    
+                    print(f"  📄 Written to: {file_path}")
+                    preview = line[:80] + ('...' if len(line) > 80 else '')
+                    print(f"     Line: {preview}")
+                    return StepResult.SUCCESS
+                
+                # Mode 2: Columns mode
+                if columns:
+                    col_list = [c.strip() for c in columns.split(",") if c.strip()]
+                else:
+                    # Auto: all non-internal keys
+                    col_list = [k for k in ctx.data.keys() if not k.startswith("_")]
+                
+                if not col_list:
+                    print("  ⚠️ No data to write")
+                    return StepResult.SUCCESS
+                
+                # Build header and row
+                header_cols = list(col_list)
+                row_vals = [str(ctx.get(c, "")) for c in col_list]
+                
+                if include_timestamp:
+                    header_cols.insert(0, "timestamp")
+                    row_vals.insert(0, datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                
+                with open(file_path, "a", encoding="utf-8") as f:
+                    if not file_exists:
+                        f.write(separator.join(header_cols) + "\n")
+                    f.write(separator.join(row_vals) + "\n")
+                
+                print(f"  📄 Written to: {file_path}")
+                preview = separator.join(row_vals[:4])
+                if len(row_vals) > 4:
+                    preview += '...'
+                print(f"     Data: {preview}")
+                return StepResult.SUCCESS
+                
+            except Exception as e:
+                print(f"  ✗ Write TXT error: {e}")
+                return StepResult.FAILED
+        
+        self._actions["write_txt"] = action_write_txt
     
     def register(self, name: str, action: Callable):
         """Register a custom action"""
@@ -1170,8 +1623,8 @@ class FlowRunner:
             # Determine next node based on result
             node_conns = conn_map.get(current_node_id, {})
             
-            if node_type == "condition":
-                # Condition node: follow yes/no based on result
+            if node_type in ["condition", "sms_get_code"]:
+                # Condition/SMS node: follow yes/no based on result
                 if result == StepResult.SUCCESS:
                     # Condition was TRUE, follow "yes" or "out"
                     next_id = node_conns.get("yes") or node_conns.get("out")

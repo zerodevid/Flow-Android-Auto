@@ -376,14 +376,28 @@ class DroidrunPortal:
     
     # ==================== Keyboard Input ====================
     
-    def type_text(self, text: str, clear_first: bool = True) -> None:
+    def type_text(self, text: str, clear_first: bool = True, delay_between_keys: float = 0) -> None:
         """
         Type text using Droidrun Portal keyboard input
         
         Args:
             text: Text to type
             clear_first: Clear existing text before typing
+            delay_between_keys: Delay between keystrokes
         """
+        if delay_between_keys > 0:
+            if clear_first:
+                encoded = base64.b64encode("".encode()).decode()
+                uri = f"{self.AUTHORITY}/keyboard/input"
+                self._run_adb("shell", "content", "insert", "--uri", uri, "--bind", f"base64_text:s:{encoded}", "--bind", "clear:b:true")
+                time.sleep(0.2)
+            for char in text:
+                encoded = base64.b64encode(char.encode()).decode()
+                uri = f"{self.AUTHORITY}/keyboard/input"
+                self._run_adb("shell", "content", "insert", "--uri", uri, "--bind", f"base64_text:s:{encoded}", "--bind", "clear:b:false")
+                time.sleep(delay_between_keys)
+            return
+
         encoded = base64.b64encode(text.encode()).decode()
         
         bindings = {

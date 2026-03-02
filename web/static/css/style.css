@@ -336,9 +336,11 @@ body {
     display: none;
 }
 
-/* Condition node */
+/* Condition and branching nodes */
 .node[data-type="condition"] .node-output-yes,
-.node[data-type="condition"] .node-output-no {
+.node[data-type="condition"] .node-output-no,
+.node[data-type="sms_get_code"] .node-output-yes,
+.node[data-type="sms_get_code"] .node-output-no {
     position: absolute;
     right: -7px;
     width: 14px;
@@ -350,17 +352,20 @@ body {
     z-index: 20;
 }
 
-.node[data-type="condition"] .node-output-yes {
+.node[data-type="condition"] .node-output-yes,
+.node[data-type="sms_get_code"] .node-output-yes {
     top: 30%;
     background: var(--success);
 }
 
-.node[data-type="condition"] .node-output-no {
+.node[data-type="condition"] .node-output-no,
+.node[data-type="sms_get_code"] .node-output-no {
     top: 70%;
     background: var(--accent);
 }
 
-.node[data-type="condition"] .node-output {
+.node[data-type="condition"] .node-output,
+.node[data-type="sms_get_code"] .node-output {
     display: none;
 }
 

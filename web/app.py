@@ -13,11 +13,20 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+# Fix Windows console encoding: don't crash on emoji, just replace with '?'
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(errors='replace')
+        sys.stderr.reconfigure(errors='replace')
+    except Exception:
+        pass
+
 from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 
-sys.path.insert(0, '/home/zeroserver/Project/auto_register')
-from utils import connect, DroidrunPortal
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+from utils import connect, DroidrunPortal, list_devices
 from utils.android_utils import get_device
 from core.flow_runner import FlowRunner
 from server.otp_server import start_server as start_otp_server, otp_store
@@ -26,17 +35,23 @@ app = Flask(__name__, static_folder='static')
 CORS(app)
 
 # Paths
-FLOWS_DIR = Path('/home/zeroserver/Project/auto_register/flows')
+FLOWS_DIR = BASE_DIR / 'flows'
 FLOWS_DIR.mkdir(exist_ok=True)
 
 # Global portal instance
 portal = None
+current_device_id = None  # None = auto (first device)
 
 def get_portal():
     global portal
     if portal is None:
-        portal = connect()
+        portal = connect(current_device_id)
     return portal
+
+def reset_portal():
+    """Reset portal to force reconnection (e.g., after device switch)"""
+    global portal
+    portal = None
 
 
 # ==================== Static Files ====================
@@ -471,6 +486,69 @@ def run_single_step():
         return jsonify({'error': str(e)}), 500
 
 
+# ==================== Device Management ====================
+
+@app.route('/api/devices', methods=['GET'])
+def get_devices():
+    """List all connected ADB devices"""
+    try:
+        devices = list_devices()
+        return jsonify({
+            'devices': devices,
+            'current': current_device_id
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/devices/select', methods=['POST'])
+def select_device():
+    """Select active device for automation"""
+    global current_device_id
+    data = request.json
+    device_id = data.get('device_id')
+    
+    # Validate device exists
+    if device_id:
+        devices = list_devices()
+        device_ids = [d['id'] for d in devices]
+        if device_id not in device_ids:
+            return jsonify({'error': f'Device {device_id} not found', 'available': device_ids}), 404
+    
+    current_device_id = device_id or None
+    reset_portal()  # Force reconnection with new device
+    
+    try:
+        p = get_portal()
+        version = p.get_version()
+        return jsonify({
+            'status': 'ok',
+            'device_id': current_device_id,
+            'android_version': version
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/devices/current', methods=['GET'])
+def get_current_device():
+    """Get currently selected device"""
+    connected = False
+    version = ''
+    try:
+        p = get_portal()
+        connected = p.ping()
+        version = p.get_version() if connected else ''
+    except:
+        pass
+    
+    return jsonify({
+        'device_id': current_device_id,
+        'connected': connected,
+        'android_version': version
+    })
+
+
 # ==================== Device Interaction ====================
 
 @app.route('/api/device/packages', methods=['GET'])
@@ -552,8 +630,9 @@ def get_elements():
 def get_screenshot():
     """Get device screenshot as base64"""
     try:
+        import tempfile
         device = get_device()
-        tmp_path = '/tmp/screenshot_web.png'
+        tmp_path = os.path.join(tempfile.gettempdir(), 'screenshot_web.png')
         device.screenshot(tmp_path)
         
         with open(tmp_path, 'rb') as f:
@@ -661,12 +740,12 @@ if __name__ == '__main__':
             print("[OTP Server] Already running or port in use")
     
     print(f"""
-╔═══════════════════════════════════════════════════════════╗
-║             🎨 Flow Editor Web Server                     ║
-╠═══════════════════════════════════════════════════════════╣
-║  Open: http://localhost:{args.port}                            ║
-║  OTP Server: http://localhost:5000                        ║
-╚═══════════════════════════════════════════════════════════╝
+=============================================================
+             Flow Editor Web Server                     
+=============================================================
+  Open: http://localhost:{args.port}                            
+  OTP Server: http://localhost:5000                        
+=============================================================
 """)
     
     app.run(host=args.host, port=args.port, debug=not args.no_debug)

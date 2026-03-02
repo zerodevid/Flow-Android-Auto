@@ -37,7 +37,8 @@ const nodeTypes = {
         params: [
             { name: 'text', type: 'text', label: 'Text' },
             { name: 'from_data', type: 'text', label: 'From Data Key' },
-            { name: 'clear', type: 'checkbox', label: 'Clear First', default: true }
+            { name: 'clear', type: 'checkbox', label: 'Clear First', default: true },
+            { name: 'speed', type: 'number', label: 'Typing Speed (s/char)', default: 0 }
         ]
     },
     wait: {
@@ -59,8 +60,10 @@ const nodeTypes = {
         params: [
             {
                 name: 'key', type: 'select', label: 'Key',
-                options: ['enter', 'back', 'home', 'recent', 'backspace', 'tab']
-            }
+                options: ['enter', 'back', 'home', 'recent', 'backspace', 'tab', 'escape', 'up', 'down', 'left', 'right', 'ctrl+c', 'ctrl+v']
+            },
+            { name: 'repeat', type: 'number', label: 'Repeat (times)', default: 1 },
+            { name: 'delay', type: 'number', label: 'Delay between keys (s)', default: 0.5 }
         ]
     },
     scroll: {
@@ -188,6 +191,72 @@ const nodeTypes = {
             { name: 'finger_id', type: 'select', label: 'Finger', options: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'], default: '1' },
             { name: 'delay', type: 'number', label: 'Delay Before (sec)', default: 0.5 }
         ]
+    },
+    sms_config: {
+        icon: '🔑', title: 'SMS Config', color: '#6d28d9',
+        params: [
+            { name: 'api_key', type: 'text', label: 'SMSBower API Key' }
+        ]
+    },
+    sms_get_number: {
+        icon: '📱', title: 'SMS Get Number', color: '#8b5cf6',
+        params: [
+            { name: 'service', type: 'text', label: 'Service Code (e.g. go, tg, wa)' },
+            { name: 'country', type: 'text', label: 'Country (0=any)', default: '0' },
+            { name: 'max_price', type: 'text', label: 'Max Price (optional)' },
+            { name: 'save_as', type: 'text', label: 'Save Phone As', default: 'sms_phone' }
+        ]
+    },
+    sms_get_code: {
+        icon: '💬', title: 'SMS Get Code', color: '#a855f7', hasMultipleOutputs: true,
+        params: [
+            { name: 'from_data', type: 'text', label: 'Activation ID From', default: 'sms_activation_id' },
+            { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 120 },
+            { name: 'save_as', type: 'text', label: 'Save Code As', default: 'sms_code' }
+        ]
+    },
+    sms_set_status: {
+        icon: '✅', title: 'SMS Set Status', color: '#7c3aed',
+        params: [
+            { name: 'from_data', type: 'text', label: 'Activation ID From', default: 'sms_activation_id' },
+            { name: 'status', type: 'select', label: 'Status', options: ['6', '8', '3'], default: '6' }
+        ]
+    },
+    sms_get_balance: {
+        icon: '💰', title: 'SMS Balance', color: '#6d28d9',
+        params: [
+            { name: 'save_as', type: 'text', label: 'Save As', default: 'sms_balance' }
+        ]
+    },
+    ldplayer: {
+        icon: '🎮', title: 'LDPlayer', color: '#f59e0b',
+        params: [
+            { name: 'ld_action', type: 'select', label: 'Action', options: ['launch', 'quit', 'quitall', 'add', 'copy', 'remove', 'rename', 'reboot'], default: 'launch' },
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'new_name', type: 'text', label: 'New Name (For copy/rename)', default: '' },
+            { name: 'console_path', type: 'text', label: 'Console Path (dnconsole.exe)', default: 'dnconsole.exe' }
+        ]
+    },
+    ld_device_props: {
+        icon: '📱', title: 'LD Device Props', color: '#10b981',
+        params: [
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'imei', type: 'text', label: 'IMEI (Use "auto" for random)', default: 'auto' },
+            { name: 'manufacturer', type: 'text', label: 'Manufacturer (Use "auto")', default: 'auto' },
+            { name: 'model', type: 'text', label: 'Model (Use "auto")', default: 'auto' },
+            { name: 'pnumber', type: 'text', label: 'Phone Number', default: '' },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    write_txt: {
+        icon: '📄', title: 'Write TXT', color: '#16a34a',
+        params: [
+            { name: 'file_path', type: 'text', label: 'File Path', default: 'output.txt' },
+            { name: 'content', type: 'textarea', label: 'Content Format (use {key})', default: '' },
+            { name: 'columns', type: 'text', label: 'Or Columns (comma-sep)', default: '' },
+            { name: 'separator', type: 'select', label: 'Separator', options: ['\t', ',', '|', ';'], default: '\t' },
+            { name: 'include_timestamp', type: 'checkbox', label: 'Include Timestamp', default: true }
+        ]
     }
 };
 
@@ -198,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initConnections();
     initZoomPan();
     loadFlowList();
+    loadDevices();
     checkConnection();
 
     // Start node is already in DOM
@@ -1513,38 +1583,57 @@ function renderConnections() {
         const pathData = calculateSmartRoute(x1, y1, x2, y2, fromBox, toBox, nodeBoxes, conn);
         const pathD = pathData.d;
 
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.style.cursor = 'pointer';
+
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', pathD);
         path.setAttribute('stroke', conn.fromPort === 'yes' ? '#4ade80' :
             conn.fromPort === 'no' ? '#ef4444' : '#e94560');
         path.setAttribute('stroke-width', '3');
         path.setAttribute('fill', 'none');
-        path.style.cursor = 'pointer';
-        path.style.pointerEvents = 'stroke';
+        path.style.pointerEvents = 'none'; // Only the hitPath handles events
         path.style.transition = 'stroke-width 0.2s';
 
+        // Invisible thick path for easier hitting/clicking
+        const hitPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hitPath.setAttribute('d', pathD);
+        hitPath.setAttribute('stroke', 'transparent');
+        hitPath.setAttribute('stroke-width', '20');
+        hitPath.setAttribute('fill', 'none');
+        hitPath.style.pointerEvents = 'stroke';
+
+        // Tooltip hint
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        title.textContent = 'Double-click or Right-click to delete';
+        hitPath.appendChild(title);
+
         // Hover effect
-        path.addEventListener('mouseenter', () => {
+        hitPath.addEventListener('mouseenter', () => {
             path.setAttribute('stroke-width', '6');
             path.setAttribute('stroke', '#ff0000');
-            path.style.zIndex = 1000;
+            g.style.zIndex = 1000;
         });
-        path.addEventListener('mouseleave', () => {
+        hitPath.addEventListener('mouseleave', () => {
             path.setAttribute('stroke-width', '3');
             path.setAttribute('stroke', conn.fromPort === 'yes' ? '#4ade80' :
                 conn.fromPort === 'no' ? '#ef4444' : '#e94560');
-            path.style.zIndex = '';
+            g.style.zIndex = '';
         });
 
-        // Click to delete
-        path.addEventListener('click', (e) => {
+        // Double-click or Right-click to delete
+        const deleteHandler = (e) => {
+            e.preventDefault();
             e.stopPropagation();
-            if (confirm('Hapus connection ini?')) {
-                deleteConnection(conn.from, conn.to, conn.fromPort);
-            }
-        });
+            deleteConnection(conn.from, conn.to, conn.fromPort);
+        };
 
-        svg.appendChild(path);
+        hitPath.addEventListener('dblclick', deleteHandler);
+        hitPath.addEventListener('contextmenu', deleteHandler);
+
+        g.appendChild(path);
+        g.appendChild(hitPath);
+        svg.appendChild(g);
 
         // Register segments for future avoidance/jumps
         if (pathData.segments) {
@@ -2548,17 +2637,8 @@ function refreshScreen() {
             }
 
             if (elements.elements) {
-                document.getElementById('device-info').innerHTML = `
-                <small>📱 ${elements.package.split('.').pop()}</small><br>
-                <small>Elements: ${elements.elements.length}</small>
-            `;
-
-                const list = document.getElementById('elements-list');
-                list.innerHTML = elements.elements
-                    .filter(e => e.text || e.resource_id)
-                    .map(e => `<div class="element-item" onclick="insertElement('${(e.text || '').replace(/'/g, "\\'")}', '${e.resource_id || ''}', ${e.index})">
-                    [${e.index}] ${e.text || e.resource_id}
-                </div>`).join('');
+                window.lastScreenElements = elements;
+                renderElementsList();
             }
 
             setStatus('Screen refreshed');
@@ -2570,6 +2650,40 @@ function refreshScreen() {
             document.getElementById('connection-status').textContent = '🔴 Disconnected';
             document.getElementById('connection-status').classList.remove('connected');
         });
+}
+
+function renderElementsList() {
+    if (!window.lastScreenElements || !window.lastScreenElements.elements) return;
+
+    const elements = window.lastScreenElements;
+    const filterElement = document.getElementById('element-filter');
+    const filterType = filterElement ? filterElement.value : 'important';
+
+    document.getElementById('device-info').innerHTML = `
+        <small>📱 ${elements.package.split('.').pop()}</small><br>
+        <small>Elements: ${elements.elements.length}</small>
+    `;
+
+    const list = document.getElementById('elements-list');
+
+    let filteredElements = elements.elements;
+    if (filterType === 'important') {
+        filteredElements = filteredElements.filter(e => e.text || e.resource_id);
+    } else if (filterType === 'text') {
+        filteredElements = filteredElements.filter(e => e.text);
+    } else if (filterType === 'id') {
+        filteredElements = filteredElements.filter(e => e.resource_id);
+    }
+
+    list.innerHTML = filteredElements
+        .map(e => {
+            // Provide fallback display name if no text or ID
+            let display = e.text || e.resource_id;
+            if (!display) {
+                display = e.class_name ? "&lt;" + e.class_name.split('.').pop() + "&gt;" : "Element";
+            }
+            return `<div class="element-item" onclick="insertElement('${(e.text || '').replace(/'/g, "\\'")}', '${(e.resource_id || '')}', ${e.index})">[${e.index}] ${display}</div>`;
+        }).join('');
 }
 
 function insertElement(text, resourceId, index) {
@@ -2602,10 +2716,91 @@ function checkConnection() {
             if (r.ok) {
                 document.getElementById('connection-status').textContent = '🟢 Connected';
                 document.getElementById('connection-status').classList.add('connected');
+            } else {
+                document.getElementById('connection-status').textContent = '🔴 Disconnected';
+                document.getElementById('connection-status').classList.remove('connected');
             }
         })
-        .catch(() => { });
+        .catch(() => {
+            document.getElementById('connection-status').textContent = '🔴 Disconnected';
+            document.getElementById('connection-status').classList.remove('connected');
+        });
 }
+
+// ==================== Device Management ====================
+
+async function loadDevices() {
+    try {
+        const res = await fetch('/api/devices');
+        const data = await res.json();
+        const select = document.getElementById('device-select');
+        if (!select) return;
+
+        select.innerHTML = '';
+
+        if (!data.devices || data.devices.length === 0) {
+            select.innerHTML = '<option value="">📵 No devices</option>';
+            return;
+        }
+
+        // Auto option
+        const autoOpt = document.createElement('option');
+        autoOpt.value = '';
+        autoOpt.textContent = `📱 Auto (${data.devices.length} device${data.devices.length > 1 ? 's' : ''})`;
+        select.appendChild(autoOpt);
+
+        data.devices.forEach(d => {
+            const opt = document.createElement('option');
+            opt.value = d.id;
+            const statusIcon = d.status === 'device' ? '🟢' : '🔴';
+            opt.textContent = `${statusIcon} ${d.model || d.id}`;
+            if (data.current === d.id) {
+                opt.selected = true;
+            }
+            select.appendChild(opt);
+        });
+
+        // Select current if set
+        if (data.current) {
+            select.value = data.current;
+        }
+    } catch (e) {
+        const select = document.getElementById('device-select');
+        if (select) {
+            select.innerHTML = '<option value="">⚠️ Error loading</option>';
+        }
+    }
+}
+
+async function selectDevice(deviceId) {
+    const statusEl = document.getElementById('connection-status');
+    statusEl.textContent = '🟡 Connecting...';
+
+    try {
+        const res = await fetch('/api/devices/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device_id: deviceId || null })
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            statusEl.textContent = `🟢 ${data.device_id || 'Auto'} (Android ${data.android_version})`;
+            statusEl.classList.add('connected');
+            setStatus(`Device selected: ${data.device_id || 'Auto'}`);
+        } else {
+            statusEl.textContent = '🔴 ' + (data.error || 'Connection failed');
+            statusEl.classList.remove('connected');
+        }
+    } catch (e) {
+        statusEl.textContent = '🔴 Connection error';
+        statusEl.classList.remove('connected');
+    }
+}
+
+// Refresh device list periodically
+setInterval(loadDevices, 15000);
 
 // ==================== Utilities ====================
 function setStatus(msg, isError = false) {

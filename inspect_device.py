@@ -1,6 +1,7 @@
 
 import sys
-sys.path.insert(0, '/home/zeroserver/Project/auto_register')
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils import connect
 
 portal = connect()

@@ -7,7 +7,8 @@ import string
 import json
 from datetime import datetime
 
-sys.path.insert(0, '/home/zeroserver/Project/auto_register')
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tools.recorder import ActionRecorder, RecordedAction
 from utils import connect
 
