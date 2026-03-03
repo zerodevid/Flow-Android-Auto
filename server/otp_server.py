@@ -8,7 +8,7 @@ import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 from datetime import datetime
 from collections import defaultdict
 from urllib.parse import parse_qs, urlparse
@@ -51,7 +51,7 @@ class OTPStore:
                 return data["otp"]
             return None
     
-    def wait_for_otp(self, session_id: str, timeout: float = 120) -> Optional[str]:
+    def wait_for_otp(self, session_id: str, timeout: float = 120, stop_check: Optional[Callable[[], bool]] = None) -> Optional[str]:
         """
         Wait for OTP to arrive for a session
         
@@ -71,8 +71,17 @@ class OTPStore:
             return self.get_otp(session_id, mark_used=True)
         
         # Wait for new OTP
-        if self._events[session_id].wait(timeout=timeout):
-            return self.get_otp(session_id, mark_used=True)
+        if stop_check:
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if stop_check():
+                    return None
+                if self._events[session_id].wait(timeout=0.5):
+                    return self.get_otp(session_id, mark_used=True)
+            return None
+        else:
+            if self._events[session_id].wait(timeout=timeout):
+                return self.get_otp(session_id, mark_used=True)
         
         return None
     
@@ -325,9 +334,9 @@ class OTPServer:
             self.server.shutdown()
             print("[OTP Server] Stopped")
     
-    def wait_for_otp(self, session_id: str = "default", timeout: float = 120) -> Optional[str]:
+    def wait_for_otp(self, session_id: str = "default", timeout: float = 120, stop_check: Optional[Callable[[], bool]] = None) -> Optional[str]:
         """Wait for OTP to arrive"""
-        return otp_store.wait_for_otp(session_id, timeout)
+        return otp_store.wait_for_otp(session_id, timeout, stop_check)
     
     def get_otp(self, session_id: str = "default") -> Optional[str]:
         """Get stored OTP"""
@@ -357,7 +366,8 @@ def get_server() -> Optional[OTPServer]:
 
 
 def wait_otp(session_id: str = "default", timeout: float = 120, 
-             otp_server_url: str = "http://127.0.0.1:5000") -> Optional[str]:
+             otp_server_url: str = "http://127.0.0.1:5000",
+             stop_check: Optional[Callable[[], bool]] = None) -> Optional[str]:
     """Wait for OTP by polling the OTP server HTTP API"""
     import urllib.request
     import urllib.error
@@ -366,6 +376,8 @@ def wait_otp(session_id: str = "default", timeout: float = 120,
     poll_interval = 1.0  # Poll every 1 second
     
     while time.time() - start_time < timeout:
+        if stop_check and stop_check():
+            break
         try:
             url = f"{otp_server_url}/otp/{session_id}"
             with urllib.request.urlopen(url, timeout=5) as response:

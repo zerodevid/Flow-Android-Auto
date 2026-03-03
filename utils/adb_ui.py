@@ -11,7 +11,7 @@ import re
 import os
 import tempfile
 import xml.etree.ElementTree as ET
-from typing import Optional, List, Dict, Any, Tuple, Union
+from typing import Optional, List, Dict, Any, Tuple, Union, Callable
 from dataclasses import dataclass
 
 
@@ -66,7 +66,7 @@ class AdbUiPortal:
         """Run ADB command and return output"""
         cmd = self._adb_prefix + list(args)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
             if result.returncode != 0:
                 stderr = result.stderr.strip()
                 # Some commands return non-zero but still work
@@ -581,10 +581,12 @@ class AdbUiPortal:
     # ==================== Wait/Polling Utilities ====================
     
     def wait_for_text(self, text: str, timeout: float = 10.0, 
-                      poll_interval: float = 0.5) -> Optional[Element]:
+                      poll_interval: float = 0.5, stop_check: Optional[Callable[[], bool]] = None) -> Optional[Element]:
         """Wait until text appears on screen"""
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             elem = self.find_by_text(text)
             if elem:
                 return elem
@@ -592,10 +594,12 @@ class AdbUiPortal:
         return None
     
     def wait_for_activity(self, activity_name: str, timeout: float = 10.0,
-                         poll_interval: float = 0.5) -> bool:
+                         poll_interval: float = 0.5, stop_check: Optional[Callable[[], bool]] = None) -> bool:
         """Wait until specific activity is in foreground"""
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             state = self.get_phone_state()
             if activity_name.lower() in state.get("activityName", "").lower():
                 return True
@@ -603,10 +607,12 @@ class AdbUiPortal:
         return False
     
     def wait_for_keyboard(self, visible: bool = True, timeout: float = 5.0,
-                         poll_interval: float = 0.3) -> bool:
+                         poll_interval: float = 0.3, stop_check: Optional[Callable[[], bool]] = None) -> bool:
         """Wait for keyboard to appear or disappear"""
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             state = self.get_phone_state()
             if state.get("keyboardVisible", False) == visible:
                 return True
@@ -695,7 +701,7 @@ def list_devices() -> List[Dict[str, str]]:
     """
     try:
         result = subprocess.run(["adb", "devices", "-l"], 
-                               capture_output=True, text=True, timeout=10)
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
         devices = []
         for line in result.stdout.strip().split("\n")[1:]:  # Skip header
             line = line.strip()
@@ -718,7 +724,7 @@ def list_devices() -> List[Dict[str, str]]:
                     try:
                         model_result = subprocess.run(
                             ["adb", "-s", device_id, "shell", "getprop", "ro.product.model"],
-                            capture_output=True, text=True, timeout=5
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5
                         )
                         model = model_result.stdout.strip()
                     except:

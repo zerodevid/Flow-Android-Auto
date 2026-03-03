@@ -37,21 +37,24 @@ CORS(app)
 # Paths
 FLOWS_DIR = BASE_DIR / 'flows'
 FLOWS_DIR.mkdir(exist_ok=True)
+DATA_DIR = BASE_DIR / 'data'
+DATA_DIR.mkdir(exist_ok=True)
+DEVICE_CONTEXT_FILE = DATA_DIR / 'device_context.json'
 
-# Global portal instance
-portal = None
+# Global portal instances
+PORTALS = {} # device_id -> portal instance
 current_device_id = None  # None = auto (first device)
 
-def get_portal():
-    global portal
-    if portal is None:
-        portal = connect(current_device_id)
-    return portal
+def get_portal(device_id=None):
+    dev_id = device_id or current_device_id
+    if dev_id not in PORTALS:
+        PORTALS[dev_id] = connect(dev_id)
+    return PORTALS[dev_id]
 
-def reset_portal():
+def reset_portal(device_id=None):
     """Reset portal to force reconnection (e.g., after device switch)"""
-    global portal
-    portal = None
+    dev_id = device_id or current_device_id
+    PORTALS.pop(dev_id, None)
 
 
 # ==================== Static Files ====================
@@ -146,8 +149,30 @@ def delete_flow(flow_id):
 
 # ==================== Flow Execution ====================
 
-# Global active runners
-ACTIVE_RUNNERS = {}  # flow_id -> FlowRunner instance
+# Global active runners and contexts
+ACTIVE_RUNNERS = {}  # device_id -> FlowRunner instance
+
+def _resolve_device_id(device_id):
+    """Always use shared context key so variables persist across device switches"""
+    return "_shared"
+
+def _load_device_context():
+    """Load device context data from JSON file"""
+    try:
+        if DEVICE_CONTEXT_FILE.exists():
+            with open(DEVICE_CONTEXT_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[Context] Error loading device context: {e}")
+    return {}
+
+def _save_device_context(data):
+    """Save device context data to JSON file"""
+    try:
+        with open(DEVICE_CONTEXT_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[Context] Error saving device context: {e}")
 
 @app.route('/api/flows/<flow_id>/run', methods=['POST'])
 def run_flow(flow_id):
@@ -157,7 +182,16 @@ def run_flow(flow_id):
         return jsonify({'error': 'Flow not found'}), 404
     
     data = request.json or {}
+    device_id = data.get('device_id') or current_device_id
     session_prefix = data.get('session_id', flow_id)
+    
+    # Validate device connection
+    try:
+        p = get_portal(device_id)
+        if not p.ping():
+            return jsonify({'error': 'Device not connected. Please connect a device first.'}), 400
+    except Exception as e:
+        return jsonify({'error': f'Device connection failed: {e}'}), 400
     
     # Queue for execution events
     from queue import Queue, Empty
@@ -168,8 +202,15 @@ def run_flow(flow_id):
     
     def run_wrapper():
         try:
-            runner = FlowRunner(get_portal())
-            ACTIVE_RUNNERS[flow_id] = runner
+            p = get_portal(device_id)
+            runner = FlowRunner(p)
+            ACTIVE_RUNNERS[device_id] = runner
+            
+            # Setup auto-switch callback to update PORTALS cache
+            def on_device_switched(new_device_id, new_portal):
+                PORTALS[new_device_id] = new_portal
+                print(f"[App] PORTALS cache updated for {new_device_id}")
+            runner._on_device_switched_cb = on_device_switched
             
             # Load flow data to check for graph mode
             with open(path) as f:
@@ -196,12 +237,17 @@ def run_flow(flow_id):
                 max_iter = 10000 if has_data_source else 200
                 
                 start_node_id = data.get('startNodeId', 'start')
+                
+                # Retrieve persisted context for this device, merge with initialData
+                ctx_key = _resolve_device_id(device_id)
+                persisted_data = _load_device_context().get(ctx_key, {}).copy()
                 initial_data = data.get('initialData', {})
+                persisted_data.update(initial_data)
                 
                 ctx = runner.run_graph(
                     flow_data, 
                     session_prefix, 
-                    initial_data=initial_data,
+                    initial_data=persisted_data,
                     callback=on_progress, 
                     max_iterations=max_iter,
                     start_node_id=start_node_id
@@ -209,7 +255,21 @@ def run_flow(flow_id):
                 results = [ctx]
             else:
                 # Use regular batch mode for linear flows
+                ctx_key = _resolve_device_id(device_id)
+                persisted_data = _load_device_context().get(ctx_key, {}).copy()
+                initial_data = data.get('initialData', {})
+                persisted_data.update(initial_data)
+                
+                # Currently FlowRunner.run_file_batch doesn't take initial_data natively in the wrapper
+                # so we might need a workaround if batch is still used. We just provide ctx.data fallback.
                 results = runner.run_file_batch(str(path), session_prefix, callback=on_progress)
+            
+            # Save the final mutated context back to the device persistence store
+            if results and len(results) > 0:
+                ctx_key = _resolve_device_id(device_id)
+                all_ctx = _load_device_context()
+                all_ctx[ctx_key] = results[-1].data
+                _save_device_context(all_ctx)
             
             # Send final batch results
             total_success = sum(
@@ -228,8 +288,13 @@ def run_flow(flow_id):
             traceback.print_exc()
             event_queue.put({"type": "error", "error": str(e)})
         finally:
-            if flow_id in ACTIVE_RUNNERS:
-                del ACTIVE_RUNNERS[flow_id]
+            ACTIVE_RUNNERS.pop(device_id, None)
+            # Save the mutated context upon completion or stop
+            if 'ctx' in locals():
+                ctx_key = _resolve_device_id(device_id)
+                all_ctx = _load_device_context()
+                all_ctx[ctx_key] = ctx.data
+                _save_device_context(all_ctx)
             event_queue.put(None)  # Signal end
     
     # Start thread
@@ -258,8 +323,10 @@ def run_flow(flow_id):
 @app.route('/api/flows/<flow_id>/stop', methods=['POST'])
 def stop_flow(flow_id):
     """Stop a running flow"""
-    if flow_id in ACTIVE_RUNNERS:
-        ACTIVE_RUNNERS[flow_id].stop()
+    data = request.json or {}
+    device_id = data.get('device_id') or current_device_id
+    if device_id in ACTIVE_RUNNERS:
+        ACTIVE_RUNNERS[device_id].stop()
         return jsonify({'status': 'stopping'})
     return jsonify({'status': 'not_running'})
 
@@ -389,7 +456,7 @@ def webhook_trigger(webhook_path):
         # Return immediately, run flow in background
         def run_async():
             try:
-                runner = FlowRunner(get_portal())
+                runner = FlowRunner(get_portal(None)) # Assuming webhook runs on auto/current device
                 with open(path) as f:
                     flow_data = json.load(f)
                 runner.run_graph(flow_data, f"webhook_{webhook_path}", initial_data=incoming_data)
@@ -410,8 +477,9 @@ def webhook_trigger(webhook_path):
     else:  # wait_complete
         # Wait for flow to complete and return results
         try:
-            runner = FlowRunner(get_portal())
-            ACTIVE_RUNNERS[flow_id] = runner
+            device_id = None # webhook uses default device for now
+            runner = FlowRunner(get_portal(device_id))
+            ACTIVE_RUNNERS[device_id] = runner
             
             with open(path) as f:
                 flow_data = json.load(f)
@@ -429,10 +497,37 @@ def webhook_trigger(webhook_path):
             traceback.print_exc()
             return jsonify({'error': str(e)}), 500
         finally:
-            if flow_id in ACTIVE_RUNNERS:
-                del ACTIVE_RUNNERS[flow_id]
+            ACTIVE_RUNNERS.pop(device_id, None)
 
 
+
+
+@app.route('/api/device/context', methods=['GET', 'POST', 'DELETE'])
+def device_context():
+    """Manage persisted execution context data per device"""
+    device_id = _resolve_device_id(request.args.get('device_id') or current_device_id)
+    if request.method == 'GET':
+        return jsonify(_load_device_context().get(device_id, {}))
+    
+    elif request.method == 'POST':
+        data = request.json or {}
+        all_ctx = _load_device_context()
+        if device_id not in all_ctx:
+            all_ctx[device_id] = {}
+        all_ctx[device_id].update(data)
+        _save_device_context(all_ctx)
+        return jsonify({"status": "updated", "context": all_ctx[device_id]})
+    
+    elif request.method == 'DELETE':
+        all_ctx = _load_device_context()
+        key = request.args.get('key')
+        if key:
+            if device_id in all_ctx:
+                all_ctx[device_id].pop(key, None)
+        else:
+            all_ctx.pop(device_id, None)
+        _save_device_context(all_ctx)
+        return jsonify({"status": "cleared"})
 
 
 @app.route('/api/run-step', methods=['POST'])
@@ -453,7 +548,8 @@ def run_single_step():
         return jsonify({'error': 'Missing step type'}), 400
     
     try:
-        runner = FlowRunner(get_portal())
+        device_id = data.get('device_id') or current_device_id
+        runner = FlowRunner(get_portal(device_id))
         
         # Create single step config
         step = {
@@ -519,7 +615,7 @@ def select_device():
     reset_portal()  # Force reconnection with new device
     
     try:
-        p = get_portal()
+        p = get_portal(current_device_id)
         version = p.get_version()
         return jsonify({
             'status': 'ok',
@@ -536,7 +632,7 @@ def get_current_device():
     connected = False
     version = ''
     try:
-        p = get_portal()
+        p = get_portal(current_device_id)
         connected = p.ping()
         version = p.get_version() if connected else ''
     except:
@@ -571,7 +667,7 @@ def get_packages():
             # All packages
             cmd = ["adb", "shell", "pm", "list", "packages"]
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
         
         packages = []
         for line in result.stdout.strip().split('\n'):
@@ -595,8 +691,9 @@ def get_packages():
 @app.route('/api/device/elements', methods=['GET'])
 def get_elements():
     """Get current screen elements"""
+    device_id = request.args.get('device_id') or current_device_id
     try:
-        p = get_portal()
+        p = get_portal(device_id)
         state = p.get_phone_state()
         elements = p.get_elements()
         
@@ -647,8 +744,9 @@ def get_screenshot():
 def tap():
     """Execute a tap"""
     data = request.json
+    device_id = data.get('device_id') or current_device_id
     try:
-        p = get_portal()
+        p = get_portal(device_id)
         
         if 'x' in data and 'y' in data:
             p.tap(data['x'], data['y'])
@@ -670,8 +768,9 @@ def tap():
 def type_text():
     """Type text"""
     data = request.json
+    device_id = data.get('device_id') or current_device_id
     try:
-        p = get_portal()
+        p = get_portal(device_id)
         p.type_text(data.get('text', ''))
         return jsonify({'status': 'ok'})
     except Exception as e:
@@ -687,7 +786,8 @@ def press_key():
         'backspace': 67, 'tab': 61, 'escape': 111
     }
     try:
-        p = get_portal()
+        device_id = data.get('device_id') or current_device_id
+        p = get_portal(device_id)
         key = data.get('key', '')
         code = key_codes.get(key.lower(), int(key) if key.isdigit() else 0)
         p.press_key(code)

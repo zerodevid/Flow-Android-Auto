@@ -8,7 +8,7 @@ import json
 import base64
 import time
 import re
-from typing import Optional, List, Dict, Any, Tuple, Union
+from typing import Optional, List, Dict, Any, Tuple, Union, Callable
 from dataclasses import dataclass
 
 
@@ -445,7 +445,7 @@ class DroidrunPortal:
     # ==================== Wait/Polling Utilities ====================
     
     def wait_for_text(self, text: str, timeout: float = 10.0, 
-                      poll_interval: float = 0.5) -> Optional[Element]:
+                      poll_interval: float = 0.5, stop_check: Optional[Callable[[], bool]] = None) -> Optional[Element]:
         """
         Wait until text appears on screen
         
@@ -453,12 +453,15 @@ class DroidrunPortal:
             text: Text to wait for
             timeout: Maximum wait time in seconds
             poll_interval: Time between polls in seconds
+            stop_check: Optional callback that returns True to stop waiting
         
         Returns:
-            Element if found, None if timeout
+            Element if found, None if timeout or stopped
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             elem = self.find_by_text(text)
             if elem:
                 return elem
@@ -466,7 +469,7 @@ class DroidrunPortal:
         return None
     
     def wait_for_activity(self, activity_name: str, timeout: float = 10.0,
-                         poll_interval: float = 0.5) -> bool:
+                         poll_interval: float = 0.5, stop_check: Optional[Callable[[], bool]] = None) -> bool:
         """
         Wait until specific activity is in foreground
         
@@ -475,6 +478,8 @@ class DroidrunPortal:
         """
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             state = self.get_phone_state()
             if activity_name.lower() in state.get("activityName", "").lower():
                 return True
@@ -482,10 +487,12 @@ class DroidrunPortal:
         return False
     
     def wait_for_keyboard(self, visible: bool = True, timeout: float = 5.0,
-                         poll_interval: float = 0.3) -> bool:
+                         poll_interval: float = 0.3, stop_check: Optional[Callable[[], bool]] = None) -> bool:
         """Wait for keyboard to appear or disappear"""
         start_time = time.time()
         while time.time() - start_time < timeout:
+            if stop_check and stop_check():
+                break
             state = self.get_phone_state()
             if state.get("keyboardVisible", False) == visible:
                 return True

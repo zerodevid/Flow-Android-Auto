@@ -11,6 +11,7 @@ const state = {
     connecting: null,
     nodeIdCounter: 1,
     currentFlowId: null,
+    runningDeviceId: null,
     // Zoom and pan
     scale: 1,
     translateX: 0,
@@ -199,7 +200,7 @@ const nodeTypes = {
         ]
     },
     sms_get_number: {
-        icon: '📱', title: 'SMS Get Number', color: '#8b5cf6',
+        icon: '📱', title: 'SMS Get Number', color: '#8b5cf6', hasMultipleOutputs: true,
         params: [
             { name: 'service', type: 'text', label: 'Service Code (e.g. go, tg, wa)' },
             { name: 'country', type: 'text', label: 'Country (0=any)', default: '0' },
@@ -246,6 +247,49 @@ const nodeTypes = {
             { name: 'model', type: 'text', label: 'Model (Use "auto")', default: 'auto' },
             { name: 'pnumber', type: 'text', label: 'Phone Number', default: '' },
             { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    ld_clone_instance: {
+        icon: '👯', title: 'LD Clone Instance', color: '#f59e0b',
+        params: [
+            { name: 'from_name_or_id', type: 'text', label: 'Source Name or Index', default: '0' },
+            { name: 'new_name', type: 'text', label: 'New Instance Name' },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    ld_delete_instance: {
+        icon: '🗑️', title: 'LD Delete Instance', color: '#ef4444',
+        params: [
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    ld_start_instance: {
+        icon: '▶️', title: 'LD Start Instance', color: '#10b981',
+        params: [
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    ld_stop_instance: {
+        icon: '⏹️', title: 'LD Stop Instance', color: '#ef4444',
+        params: [
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    ld_wait_boot: {
+        icon: '⏳', title: 'LD Wait Boot', color: '#3b82f6',
+        params: [
+            { name: 'name_or_id', type: 'text', label: 'Name or Index', default: '0' },
+            { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 120 },
+            { name: 'console_path', type: 'text', label: 'Console Path (ldconsole.exe)', default: 'ldconsole.exe' }
+        ]
+    },
+    wait_device: {
+        icon: '🔌', title: 'Wait Device', color: '#3b82f6',
+        params: [
+            { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 60 }
         ]
     },
     write_txt: {
@@ -512,6 +556,166 @@ function deleteNode(id) {
         state.selectedNode = null;
         showProperties(null);
     }
+}
+
+// ==================== Context Variables Management ====================
+
+function loadContextData() {
+    const deviceSelect = document.getElementById('device-select');
+    const deviceId = deviceSelect ? deviceSelect.value : '';
+    const url = deviceId ? `/api/device/context?device_id=${encodeURIComponent(deviceId)}` : '/api/device/context';
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            renderContextVariables(data);
+        })
+        .catch(err => {
+            console.error("Failed to load context variables:", err);
+            const panel = document.getElementById('variables-panel');
+            if (panel) panel.innerHTML = `<p class="hint">Failed to load variables.</p>`;
+        });
+}
+
+function renderContextVariables(data) {
+    const panel = document.getElementById('variables-panel');
+    if (!panel) return;
+
+    panel.innerHTML = '';
+    const keys = Object.keys(data);
+
+    if (keys.length === 0) {
+        panel.innerHTML = '<p class="hint">No variables generated yet.</p>';
+        return;
+    }
+
+    keys.forEach(key => {
+        const val = data[key];
+        const row = document.createElement('div');
+        row.className = 'property-group variable-row';
+        row.style.display = 'flex';
+        row.style.gap = '5px';
+        row.style.alignItems = 'center';
+
+        row.innerHTML = `
+            <input type="text" class="var-key" value="${key}" placeholder="Key" style="width: 40%">
+            <input type="text" class="var-val" value="${typeof val === 'object' ? JSON.stringify(val) : val}" placeholder="Value" style="width: 50%">
+            <button class="btn-small btn-danger" onclick="removeContextVariable('${key}')" title="Delete" style="width: 10%">×</button>
+        `;
+
+        // Add listeners to auto-save on blur
+        const inputs = row.querySelectorAll('input');
+        inputs.forEach(input => {
+            input.addEventListener('change', saveContextData);
+        });
+
+        panel.appendChild(row);
+    });
+}
+
+function saveContextData() {
+    const panel = document.getElementById('variables-panel');
+    if (!panel) return;
+
+    const rows = panel.querySelectorAll('.variable-row');
+    const newData = {};
+
+    rows.forEach(row => {
+        const keyInput = row.querySelector('.var-key');
+        const valInput = row.querySelector('.var-val');
+        if (keyInput && valInput && keyInput.value.trim() !== '') {
+            let val = valInput.value;
+            // Try parse JSON object/array if applicable, else string
+            try {
+                if (val.startsWith('{') || val.startsWith('[')) {
+                    val = JSON.parse(val);
+                }
+            } catch (e) { }
+            newData[keyInput.value.trim()] = val;
+        }
+    });
+
+    const deviceSelect = document.getElementById('device-select');
+    const deviceId = deviceSelect ? deviceSelect.value : '';
+    const url = deviceId ? `/api/device/context?device_id=${encodeURIComponent(deviceId)}` : '/api/device/context';
+
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newData)
+    })
+        .then(r => r.json())
+        .then(res => {
+            console.log("Saved variables:", res);
+            // We do not purely re-render here to avoid losing input focus, 
+            // rely on the user interface state or manual refresh button
+        })
+        .catch(err => {
+            console.error("Failed to save variables:", err);
+        });
+}
+
+function addContextVariable() {
+    const panel = document.getElementById('variables-panel');
+    if (!panel) return;
+
+    // Remove the hint if it exists
+    const hint = panel.querySelector('.hint');
+    if (hint) {
+        panel.removeChild(hint);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'property-group variable-row';
+    row.style.display = 'flex';
+    row.style.gap = '5px';
+    row.style.alignItems = 'center';
+
+    const tempId = 'new_' + Date.now();
+
+    row.innerHTML = `
+        <input type="text" class="var-key" placeholder="Key" style="width: 40%">
+        <input type="text" class="var-val" placeholder="Value" style="width: 50%">
+        <button class="btn-small btn-danger" onclick="this.parentElement.remove(); saveContextData();" title="Delete" style="width: 10%">×</button>
+    `;
+
+    const inputs = row.querySelectorAll('input');
+    inputs.forEach(input => {
+        input.addEventListener('change', saveContextData);
+    });
+
+    panel.appendChild(row);
+    row.querySelector('.var-key').focus();
+}
+
+function removeContextVariable(key) {
+    const deviceSelect = document.getElementById('device-select');
+    const deviceId = deviceSelect ? deviceSelect.value : '';
+
+    let url = `/api/device/context?key=${encodeURIComponent(key)}`;
+    if (deviceId) {
+        url += `&device_id=${encodeURIComponent(deviceId)}`;
+    }
+
+    fetch(url, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(() => {
+            loadContextData();
+        });
+}
+
+function clearContextData() {
+    if (!confirm('Are you sure you want to clear all variables for this device?')) return;
+
+    const deviceSelect = document.getElementById('device-select');
+    const deviceId = deviceSelect ? deviceSelect.value : '';
+    const url = deviceId ? `/api/device/context?device_id=${encodeURIComponent(deviceId)}` : '/api/device/context';
+
+    fetch(url, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(() => {
+            loadContextData();
+        });
 }
 
 function updateNodeBody(id) {
@@ -1081,7 +1285,7 @@ function clearAllRows(nodeId) {
 
 // CSV Import
 function importCSV(nodeId) {
-    document.getElementById(`csv - input - ${nodeId} `).click();
+    document.getElementById(`csv-input-${nodeId}`).click();
 }
 
 function handleCSVImport(nodeId, input) {
@@ -2194,11 +2398,40 @@ async function runFlow(startNodeId = null, initialData = {}) {
         if (startNodeId) payload.startNodeId = startNodeId;
         if (initialData && Object.keys(initialData).length > 0) payload.initialData = initialData;
 
+        const deviceSelect = document.getElementById('device-select');
+        const deviceId = deviceSelect ? deviceSelect.value : null;
+        if (deviceId) {
+            payload.device_id = deviceId;
+        }
+        state.runningDeviceId = deviceId; // Track which device is running this flow
+
+        // Check device connection before running
+        try {
+            // Verify specific device connection
+            const deviceRes = await fetch(`/api/device/elements?device_id=${deviceId || ''}`);
+            if (!deviceRes.ok) {
+                hideLoading();
+                setStatus('Error: Device not connected. Please connect a device first.', true);
+                addLog('❌ Error: Cannot start flow - No device connected!', 'error');
+                // UI State: Stopped
+                document.getElementById('btn-run').style.display = 'inline-block';
+                document.getElementById('btn-stop').style.display = 'none';
+                return;
+            }
+        } catch (e) {
+            console.warn("Failed to check device status", e);
+        }
+
         const runRes = await fetch(`/api/flows/${state.currentFlowId}/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
+
+        if (!runRes.ok) {
+            const errData = await runRes.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP error ${runRes.status}`);
+        }
 
         // Reader for streaming response
         const reader = runRes.body.getReader();
@@ -2234,6 +2467,7 @@ async function runFlow(startNodeId = null, initialData = {}) {
         // UI State: Stopped
         document.getElementById('btn-run').style.display = 'inline-block';
         document.getElementById('btn-stop').style.display = 'none';
+        state.runningDeviceId = null;
     }
 }
 
@@ -2243,8 +2477,13 @@ function stopRun() {
     addLog('🛑 Stopping...', 'warning');
     setStatus('Stopping flow...');
 
+    const deviceSelect = document.getElementById('device-select');
+    const deviceId = state.runningDeviceId || (deviceSelect ? deviceSelect.value : null);
+
     fetch(`/api/flows/${state.currentFlowId}/stop`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_id: deviceId })
     })
         .then(r => r.json())
         .then(data => {
@@ -2282,6 +2521,10 @@ function handleStreamMessage(msg, executionOrder) {
 
     } else if (msg.type === 'batch_stopped') {
         addLog(`🛑 Batch stopped at row ${msg.row + 1}`, 'warning');
+
+        // Execution logs from backend
+    } else if (msg.type === 'log') {
+        addLog(msg.message, msg.level || 'info');
 
         // Single flow messages
     } else if (msg.type === 'step_start') {

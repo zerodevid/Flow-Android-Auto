@@ -340,7 +340,9 @@ body {
 .node[data-type="condition"] .node-output-yes,
 .node[data-type="condition"] .node-output-no,
 .node[data-type="sms_get_code"] .node-output-yes,
-.node[data-type="sms_get_code"] .node-output-no {
+.node[data-type="sms_get_code"] .node-output-no,
+.node[data-type="sms_get_number"] .node-output-yes,
+.node[data-type="sms_get_number"] .node-output-no {
     position: absolute;
     right: -7px;
     width: 14px;
@@ -353,19 +355,22 @@ body {
 }
 
 .node[data-type="condition"] .node-output-yes,
-.node[data-type="sms_get_code"] .node-output-yes {
+.node[data-type="sms_get_code"] .node-output-yes,
+.node[data-type="sms_get_number"] .node-output-yes {
     top: 30%;
     background: var(--success);
 }
 
 .node[data-type="condition"] .node-output-no,
-.node[data-type="sms_get_code"] .node-output-no {
+.node[data-type="sms_get_code"] .node-output-no,
+.node[data-type="sms_get_number"] .node-output-no {
     top: 70%;
     background: var(--accent);
 }
 
 .node[data-type="condition"] .node-output,
-.node[data-type="sms_get_code"] .node-output {
+.node[data-type="sms_get_code"] .node-output,
+.node[data-type="sms_get_number"] .node-output {
     display: none;
 }
 
@@ -693,6 +698,39 @@ button:hover {
     color: var(--accent);
     font-weight: bold;
     padding: 6px 0;
+}
+
+/* ==================== Variables Panel ==================== */
+.variables-toolbar {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+
+.variables-panel {
+    background: var(--bg-tertiary);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 16px;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border);
+}
+
+.variable-row {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.variable-row:last-child {
+    border-bottom: none;
+}
+
+.var-key,
+.var-val {
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.75rem !important;
+    padding: 4px 6px !important;
 }
 
 /* ==================== Elements List ==================== */

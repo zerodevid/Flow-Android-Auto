@@ -51,7 +51,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
-from utils import connect, DroidrunPortal
+from utils import connect, DroidrunPortal, list_devices
 from utils.totp import generate_totp, get_totp_with_remaining, wait_for_fresh_totp
 from server.otp_server import start_server, wait_otp, otp_store
 
@@ -70,6 +70,18 @@ class StepContext:
     session_id: str
     data: Dict[str, Any] = field(default_factory=dict)  # Shared data between steps
     step_results: List[Dict] = field(default_factory=list)
+    _is_stopped_cb: Optional[Callable[[], bool]] = None
+    _log_cb: Optional[Callable[[str, str], None]] = None
+    
+    def is_stopped(self) -> bool:
+        """Check if flow execution is stopped"""
+        return self._is_stopped_cb() if self._is_stopped_cb else False
+        
+    def log(self, message: str, level: str = "info"):
+        """Log a message that will show up in the UI console"""
+        print(message)
+        if self._log_cb:
+            self._log_cb(message, level)
     
     def set(self, key: str, value: Any):
         """Set a value in shared data"""
@@ -93,6 +105,19 @@ class StepConfig:
     optional: bool = False  # If True, continue even if step fails
 
 
+def interruptible_sleep(ctx: StepContext, duration: float):
+    """Sleep that can be interrupted by the stop flag"""
+    if duration <= 0:
+        return
+    start_time = time.time()
+    while time.time() - start_time < duration:
+        if ctx.is_stopped():
+            break
+        sleep_time = min(0.2, duration - (time.time() - start_time))
+        if sleep_time > 0:
+            time.sleep(sleep_time)
+
+
 class StepRegistry:
     """Registry of step actions"""
     
@@ -112,8 +137,10 @@ class StepRegistry:
             
             # Delay before action
             if delay > 0:
-                time.sleep(delay)
+                interruptible_sleep(ctx, delay)
             
+            if ctx.is_stopped(): return StepResult.FAILED
+
             # Tap by coordinates (no validation needed)
             if x is not None and y is not None:
                 self.portal.tap(x, y)
@@ -122,10 +149,12 @@ class StepRegistry:
             # Wait for element to appear first if wait_for is True
             # Only wait for text, not resource_id (resource_id tapping handles its own lookup)
             if wait_for and timeout > 0 and text:
-                elem = self.portal.wait_for_text(text, timeout=timeout)
+                elem = self.portal.wait_for_text(text, timeout=timeout, stop_check=ctx.is_stopped)
                 if not elem:
                     print(f"  ✗ Element not found: {text}")
                     return StepResult.FAILED
+            
+            if ctx.is_stopped(): return StepResult.FAILED
             
             # Now tap
             if resource_id:
@@ -145,7 +174,9 @@ class StepRegistry:
                         delay: float = 0, speed: float = 0, **kwargs) -> StepResult:
             # Delay before action
             if delay > 0:
-                time.sleep(delay)
+                interruptible_sleep(ctx, delay)
+            
+            if ctx.is_stopped(): return StepResult.FAILED
             
             value = text
             if from_data:
@@ -159,7 +190,7 @@ class StepRegistry:
         def action_wait(ctx: StepContext, text: str = None, 
                         timeout: float = 10, **kwargs) -> StepResult:
             if text:
-                elem = self.portal.wait_for_text(text, timeout=timeout)
+                elem = self.portal.wait_for_text(text, timeout=timeout, stop_check=ctx.is_stopped)
                 if elem:
                     return StepResult.SUCCESS
             return StepResult.FAILED
@@ -176,6 +207,8 @@ class StepRegistry:
             poll_interval = 0.5
             
             while time.time() - start_time < timeout:
+                if ctx.is_stopped():
+                    break
                 # Refresh screen and check if text still exists
                 try:
                     elem = self.portal.find_by_text(text)
@@ -187,7 +220,7 @@ class StepRegistry:
                     # Error finding element = probably gone
                     return StepResult.SUCCESS
                 
-                time.sleep(poll_interval)
+                interruptible_sleep(ctx, poll_interval)
             
             print(f"  ✗ Timeout - '{text}' still visible after {timeout}s")
             return StepResult.FAILED
@@ -214,12 +247,12 @@ class StepRegistry:
                     pass
             
             print(f"  ⏳ Waiting for OTP...")
-            otp = wait_otp(session, timeout=timeout)
+            otp = wait_otp(session, timeout=timeout, stop_check=ctx.is_stopped)
             if otp:
                 ctx.set(save_as, otp)
                 print(f"  ✓ OTP received: {otp}")
                 return StepResult.SUCCESS
-            print("  ✗ OTP timeout")
+            print("  ✗ OTP timeout or stopped")
             return StepResult.FAILED
         
         # Generate and input TOTP
@@ -230,10 +263,11 @@ class StepRegistry:
             if from_data:
                 key = ctx.get(from_data)
             if key:
-                code = wait_for_fresh_totp(key, min_remaining=min_remaining)
-                ctx.set(save_as, code)
-                print(f"  ✓ TOTP generated: {code}")
-                return StepResult.SUCCESS
+                code = wait_for_fresh_totp(key, min_remaining=min_remaining, stop_check=ctx.is_stopped)
+                if code:
+                    ctx.set(save_as, code)
+                    print(f"  ✓ TOTP generated: {code}")
+                    return StepResult.SUCCESS
             return StepResult.FAILED
         
         # Press key
@@ -248,9 +282,10 @@ class StepRegistry:
             if code:
                 repeat_count = max(1, int(repeat))
                 for i in range(repeat_count):
+                    if ctx.is_stopped(): return StepResult.FAILED
                     self.portal.press_key(code)
                     if repeat_count > 1 and i < repeat_count - 1 and delay > 0:
-                        time.sleep(delay)
+                        interruptible_sleep(ctx, delay)
                 return StepResult.SUCCESS
             return StepResult.FAILED
         
@@ -305,7 +340,7 @@ class StepRegistry:
             
             # Get the current app package to return to later
             result = subprocess.run(
-                ["adb", "shell", "dumpsys", "window", "windows"],
+                self.portal._adb_prefix + ["shell", "dumpsys", "window", "windows"],
                 capture_output=True, text=True, timeout=5
             )
             current_package = None
@@ -358,8 +393,8 @@ class StepRegistry:
             paste_url = f"{server_url}/paste?session={session_id}"
             print(f"  🌐 Opening browser: {paste_url}")
             
-            subprocess.run([
-                "adb", "shell", "am", "start", "-a", "android.intent.action.VIEW",
+            subprocess.run(self.portal._adb_prefix + [
+                "shell", "am", "start", "-a", "android.intent.action.VIEW",
                 "-d", paste_url
             ], capture_output=True, timeout=5)
             
@@ -400,7 +435,7 @@ class StepRegistry:
                     print("  ✓ Tapped manual input field")
                     time.sleep(0.5)
                     # Send PASTE keycode
-                    subprocess.run(["adb", "shell", "input", "keyevent", "279"], timeout=2)
+                    subprocess.run(self.portal._adb_prefix + ["shell", "input", "keyevent", "279"], timeout=2)
                     print("  📋 Sent PASTE keycode")
                     time.sleep(0.5)
                     
@@ -409,7 +444,7 @@ class StepRegistry:
                         print("  ✓ Tapped Send Manual button")
                     else:
                         # Try generic enter
-                        subprocess.run(["adb", "shell", "input", "keyevent", "66"], timeout=2)
+                        subprocess.run(self.portal._adb_prefix + ["shell", "input", "keyevent", "66"], timeout=2)
                     
                     time.sleep(1)
                     clipboard_data = check_data()
@@ -418,15 +453,15 @@ class StepRegistry:
 
             # Step 5: Close browser and return to original app
             print("  🔙 Returning to app...")
-            subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_BACK"], timeout=3)
+            subprocess.run(self.portal._adb_prefix + ["shell", "input", "keyevent", "KEYCODE_BACK"], timeout=3)
             time.sleep(0.3)
-            subprocess.run(["adb", "shell", "input", "keyevent", "KEYCODE_BACK"], timeout=3)
+            subprocess.run(self.portal._adb_prefix + ["shell", "input", "keyevent", "KEYCODE_BACK"], timeout=3)
             time.sleep(0.3)
             
             # Force return to original app if we know it
             if current_package:
-                subprocess.run([
-                    "adb", "shell", "am", "start", "-n",
+                subprocess.run(self.portal._adb_prefix + [
+                    "shell", "am", "start", "-n",
                     f"{current_package}/.MainActivity"
                 ], capture_output=True, timeout=3)
             
@@ -467,8 +502,8 @@ class StepRegistry:
         
         # Delay/sleep
         def action_delay(ctx: StepContext, seconds: float = 1, **kwargs) -> StepResult:
-            time.sleep(seconds)
-            return StepResult.SUCCESS
+            interruptible_sleep(ctx, seconds)
+            return StepResult.SUCCESS if not ctx.is_stopped() else StepResult.FAILED
         
         # Launch app
         def action_launch(ctx: StepContext, package: str = None, **kwargs) -> StepResult:
@@ -492,7 +527,7 @@ class StepRegistry:
                           headers: Dict = None, include_data: bool = True,
                           payload: Dict = None, timeout: float = 10,
                           save_response: str = None, **kwargs) -> StepResult:
-            print(f"  📡 HTTP Request: {method} {url}")
+            ctx.log(f"  📡 HTTP Request: {method} {url}")
             
             try:
                 import urllib.request
@@ -537,16 +572,16 @@ class StepRegistry:
                         except:
                             response_data = response_body
                         ctx.set(save_response, response_data)
-                        print(f"  ✓ Response saved to '{save_response}'")
+                        ctx.log(f"  ✓ Response saved to '{save_response}'", "success")
                     
-                    print(f"  ✓ HTTP Request success: {status}")
+                    ctx.log(f"  ✓ HTTP Request success: {status}", "success")
                     return StepResult.SUCCESS
                     
             except urllib.error.HTTPError as e:
-                print(f"  ✗ HTTP Request error: {e.code} {e.reason}")
+                ctx.log(f"  ✗ HTTP Request error: {e.code} {e.reason}", "error")
                 return StepResult.FAILED
             except Exception as e:
-                print(f"  ✗ HTTP Request error: {e}")
+                ctx.log(f"  ✗ HTTP Request error: {e}", "error")
                 return StepResult.FAILED
 
         # Register all
@@ -573,19 +608,21 @@ class StepRegistry:
         def action_shell(ctx: StepContext, command: str = None, **kwargs) -> StepResult:
             if command:
                 result = subprocess.run(
-                    ["adb", "shell"] + command.split(),
+                    self.portal._adb_prefix + ["shell"] + command.split(),
                     capture_output=True, text=True, timeout=10
                 )
-                print(f"  📟 Shell: {command}")
+                ctx.log(f"  📟 Shell: {command}")
                 if result.returncode == 0:
                     return StepResult.SUCCESS
+                else:
+                    ctx.log(f"  ✗ Shell failed: {result.stderr or result.stdout}", "error")
             return StepResult.FAILED
         
         # Close/Force-stop app (remove from RAM)
         def action_close(ctx: StepContext, package: str = None, **kwargs) -> StepResult:
             if package:
                 result = subprocess.run(
-                    ["adb", "shell", "am", "force-stop", package],
+                    self.portal._adb_prefix + ["shell", "am", "force-stop", package],
                     capture_output=True, text=True, timeout=10
                 )
                 print(f"  🛑 Force-stopped: {package}")
@@ -601,14 +638,14 @@ class StepRegistry:
             if cache_only:
                 # Clear only cache directory
                 result = subprocess.run(
-                    ["adb", "shell", "rm", "-rf", f"/data/data/{package}/cache/*"],
+                    self.portal._adb_prefix + ["shell", "rm", "-rf", f"/data/data/{package}/cache/*"],
                     capture_output=True, text=True, timeout=10
                 )
                 print(f"  🧹 Cache cleared: {package}")
             else:
                 # Clear all app data (requires root or run-as for some apps)
                 result = subprocess.run(
-                    ["adb", "shell", "pm", "clear", package],
+                    self.portal._adb_prefix + ["shell", "pm", "clear", package],
                     capture_output=True, text=True, timeout=15
                 )
                 if "Success" in result.stdout:
@@ -618,7 +655,7 @@ class StepRegistry:
                     print(f"  ⚠️ Clear result: {result.stdout.strip()}")
                     # Try alternative method
                     subprocess.run(
-                        ["adb", "shell", "am", "force-stop", package],
+                        self.portal._adb_prefix + ["shell", "am", "force-stop", package],
                         capture_output=True, text=True, timeout=5
                     )
                     return StepResult.SUCCESS
@@ -634,7 +671,7 @@ class StepRegistry:
             import urllib.error
             
             if not prompt:
-                print("  ✗ No prompt provided")
+                ctx.log("  ✗ No prompt provided", "error")
                 return StepResult.FAILED
             
             # Replace placeholders in prompt with context data
@@ -652,8 +689,8 @@ class StepRegistry:
                 except:
                     pass
             
-            print(f"  🤖 Asking AI ({provider})...")
-            print(f"     Prompt: {final_prompt[:100]}...")
+            ctx.log(f"  🤖 Asking AI ({provider})...", "info")
+            ctx.log(f"     Prompt: {final_prompt[:100]}...", "info")
             
             try:
                 response_text = None
@@ -662,7 +699,7 @@ class StepRegistry:
                     # Use Gemini API
                     api_key = os.environ.get("GEMINI_API_KEY", "")
                     if not api_key:
-                        print("  ✗ GEMINI_API_KEY not set")
+                        ctx.log("  ✗ GEMINI_API_KEY not set", "error")
                         return StepResult.FAILED
                     
                     model_name = model or "gemini-2.0-flash"
@@ -688,7 +725,7 @@ class StepRegistry:
                     # Use OpenAI API
                     api_key = os.environ.get("OPENAI_API_KEY", "")
                     if not api_key:
-                        print("  ✗ OPENAI_API_KEY not set")
+                        ctx.log("  ✗ OPENAI_API_KEY not set", "error")
                         return StepResult.FAILED
                     
                     model_name = model or "gpt-4o-mini"
@@ -738,25 +775,25 @@ class StepRegistry:
                         response_text = data.get("response", "")
                 
                 else:
-                    print(f"  ✗ Unknown provider: {provider}")
+                    ctx.log(f"  ✗ Unknown provider: {provider}", "error")
                     return StepResult.FAILED
                 
                 if response_text:
                     # Clean up response (remove extra whitespace)
                     response_text = response_text.strip()
                     ctx.set(save_as, response_text)
-                    print(f"  ✓ AI Response saved to '{save_as}'")
-                    print(f"     Response: {response_text[:100]}...")
+                    ctx.log(f"  ✓ AI Response saved to '{save_as}'", "success")
+                    ctx.log(f"     Response: {response_text[:100]}...", "info")
                     return StepResult.SUCCESS
                 
-                print("  ✗ Empty response from AI")
+                ctx.log("  ✗ Empty response from AI", "error")
                 return StepResult.FAILED
                 
             except urllib.error.HTTPError as e:
-                print(f"  ✗ AI HTTP Error: {e.code} {e.reason}")
+                ctx.log(f"  ✗ AI HTTP Error: {e.code} {e.reason}", "error")
                 return StepResult.FAILED
             except Exception as e:
-                print(f"  ✗ AI Error: {e}")
+                ctx.log(f"  ✗ AI Error: {e}", "error")
                 return StepResult.FAILED
         
         # Condition - check if text exists on screen or in data
@@ -835,8 +872,10 @@ class StepRegistry:
             # Get current index (stateful iteration)
             # Check context first, then param default (which allows resuming from a specific index)
             index = ctx.get("_data_source_index")
-            if index is None:
-                index = int(start_index)
+            try:
+                index = int(index) if index is not None else int(start_index)
+            except (ValueError, TypeError):
+                index = 0
             
             if index < len(rows):
                 # Load current row data
@@ -871,7 +910,7 @@ class StepRegistry:
             try:
                 # adb emu finger touch <finger_id>
                 result = subprocess.run(
-                    ["adb", "emu", "finger", "touch", str(finger_id)],
+                    self.portal._adb_prefix + ["emu", "finger", "touch", str(finger_id)],
                     capture_output=True,
                     text=True,
                     timeout=5
@@ -885,7 +924,7 @@ class StepRegistry:
                     print(f"  ⚠️ Fingerprint via ADB failed, trying alternative...")
                     # Some emulators need a different approach
                     result2 = subprocess.run(
-                        ["adb", "shell", "input", "keyevent", "KEYCODE_FINGERPRINT"],
+                        self.portal._adb_prefix + ["shell", "input", "keyevent", "KEYCODE_FINGERPRINT"],
                         capture_output=True,
                         text=True,
                         timeout=5
@@ -1009,6 +1048,9 @@ class StepRegistry:
             last_code = None
             
             while time.time() - start_time < timeout:
+                if ctx.is_stopped():
+                    break
+                
                 try:
                     result = _sms_api_call("getStatus", api_key, {"id": str(activation_id)})
                     
@@ -1041,9 +1083,9 @@ class StepRegistry:
                 except Exception as e:
                     print(f"  ⚠️ Poll error: {e}")
                 
-                time.sleep(poll_interval)
+                interruptible_sleep(ctx, poll_interval)
             
-            print(f"  ✗ SMS timeout after {timeout}s")
+            print(f"  ✗ SMS timeout after {timeout}s (or stopped)")
             return StepResult.FAILED
         
         # SMS Set Status - change activation status
@@ -1143,8 +1185,7 @@ class StepRegistry:
             # Common LDPlayer installation paths
             drives = ["C:", "D:", "E:"]
             folders = [
-                r"\LDPlayer\LDPlayer9",
-                r"\LDPlayer\LDPlayer4",
+                r"\LDPlayer4.0\LDPlayer",
                 r"\XuanZhi\LDPlayer"
             ]
             for drive in drives:
@@ -1191,7 +1232,8 @@ class StepRegistry:
                 timeout = 60 if ld_action in ["copy", "add"] else 30
                 result = subprocess.run(
                     cmd,
-                    capture_output=True, text=True, timeout=timeout
+                    capture_output=True, text=True, timeout=timeout,
+                    cwd=os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None
                 )
                 if result.returncode == 0:
                     print(f"  ✓ LDPlayer '{ld_action}' executed")
@@ -1235,7 +1277,8 @@ class StepRegistry:
             try:
                 result = subprocess.run(
                     cmd,
-                    capture_output=True, text=True, timeout=30
+                    capture_output=True, text=True, timeout=30,
+                    cwd=os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None
                 )
                 if result.returncode == 0:
                     print(f"  ✓ LDPlayer device properties modified")
@@ -1252,6 +1295,246 @@ class StepRegistry:
                 return StepResult.FAILED
 
         self._actions["ld_device_props"] = action_ld_device_props
+
+        # LD Clone Instance
+        def action_ld_clone_instance(ctx: StepContext, from_name_or_id: str = "0",
+                                     new_name: str = "", console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            resolved_path = _resolve_executable_path(console_path)
+            cmd = [resolved_path, "copy", "--name", str(new_name), "--from", str(from_name_or_id)]
+            cwd = os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None
+            
+            print(f"  👯 LD Clone: {' '.join(cmd)}")
+            try:
+                # Run clone command (this might return immediately with code 1 depending on LDPlayer version)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=60, cwd=cwd)
+                if result.returncode != 0:
+                    print(f"  ⚠️ LDPlayer clone returned non-zero ({result.returncode}), output: {result.stderr or result.stdout}")
+                    print(f"  ⏳ Waiting to see if clone '{new_name}' appears anyway...")
+                else:
+                    print(f"  ⏳ Waiting for clone '{new_name}' to appear and stabilize...")
+                    
+                # Monitor list2 to ensure the new instance has finished creating
+                start_time = time.time()
+                timeout = 180 # 3 minute timeout for cloning
+                
+                while time.time() - start_time < timeout:
+                    if ctx.is_stopped():
+                        return StepResult.FAILED
+                        
+                    list2_cmd = [resolved_path, "list2"]
+                    list_result = subprocess.run(list2_cmd, capture_output=True, text=True, timeout=10, cwd=cwd)
+                    if list_result.returncode == 0:
+                        lines = list_result.stdout.strip().split('\n')
+                        for line in lines:
+                            parts = line.split(',')
+                            if len(parts) >= 2 and parts[1] == new_name:
+                                # Sometimes when it appears, we should wait just a tiny bit longer to be sure
+                                # it's completely flushed to disk.
+                                time.sleep(2)
+                                print(f"  ✓ LDPlayer instance cloned to '{new_name}' ({time.time() - start_time:.1f}s)")
+                                return StepResult.SUCCESS
+                    
+                    interruptible_sleep(ctx, 2.0)
+                
+                print(f"  ✗ Clone timeout after {timeout} seconds")
+                return StepResult.FAILED
+                
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_clone_instance"] = action_ld_clone_instance
+
+        # LD Delete Instance
+        def action_ld_delete_instance(ctx: StepContext, name_or_id: str = "0",
+                                      console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            resolved_path = _resolve_executable_path(console_path)
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            cmd = [resolved_path, "remove", flag, str(name_or_id)]
+            
+            print(f"  🗑️ LD Delete: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None)
+                if result.returncode == 0:
+                    print(f"  ✓ LDPlayer instance '{name_or_id}' deleted")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ✗ LDPlayer delete error: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_delete_instance"] = action_ld_delete_instance
+
+        # LD Start Instance
+        def action_ld_start_instance(ctx: StepContext, name_or_id: str = "0",
+                                     console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            resolved_path = _resolve_executable_path(console_path)
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            cmd = [resolved_path, "launch", flag, str(name_or_id)]
+            
+            print(f"  ▶️ LD Start: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None)
+                if result.returncode == 0:
+                    print(f"  ✓ LDPlayer instance '{name_or_id}' started")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ✗ LDPlayer start error: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_start_instance"] = action_ld_start_instance
+
+        # LD Stop Instance
+        def action_ld_stop_instance(ctx: StepContext, name_or_id: str = "0",
+                                    console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            resolved_path = _resolve_executable_path(console_path)
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            cmd = [resolved_path, "quit", flag, str(name_or_id)]
+            
+            print(f"  ⏹️ LD Stop: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, cwd=os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None)
+                if result.returncode == 0:
+                    print(f"  ✓ LDPlayer instance '{name_or_id}' stopped")
+                    return StepResult.SUCCESS
+                else:
+                    print(f"  ✗ LDPlayer stop error: {result.stderr or result.stdout}")
+                    return StepResult.FAILED
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_stop_instance"] = action_ld_stop_instance
+
+        # LD Wait Boot
+        def action_ld_wait_boot(ctx: StepContext, name_or_id: str = "0", timeout: float = 120,
+                                console_path: str = "ldconsole.exe", **kwargs) -> StepResult:
+            import subprocess
+            resolved_path = _resolve_executable_path(console_path)
+            is_index = str(name_or_id).isdigit()
+            flag = "--index" if is_index else "--name"
+            cmd_isrunning = [resolved_path, "isrunning", flag, str(name_or_id)]
+            cmd_adb = [resolved_path, "adb", flag, str(name_or_id), "--command", "shell getprop sys.boot_completed"]
+            cwd = os.path.dirname(resolved_path) if os.path.dirname(resolved_path) else None
+            
+            print(f"  ⏳ LD Wait Boot: Waiting up to {timeout}s for instance '{name_or_id}' to boot...")
+            start_time = time.time()
+            
+            try:
+                is_running = False
+                while time.time() - start_time < timeout:
+                    if ctx.is_stopped():
+                        return StepResult.FAILED
+                        
+                    if not is_running:
+                        result = subprocess.run(cmd_isrunning, capture_output=True, text=True, timeout=10, cwd=cwd)
+                        if result.returncode == 0 and result.stdout.strip() == "running":
+                            is_running = True
+                            print(f"  ⏳ Process running, waiting for Android OS to finish booting...")
+                    
+                    if is_running:
+                        adb_result = subprocess.run(cmd_adb, capture_output=True, text=True, timeout=10, cwd=cwd)
+                        if adb_result.returncode == 0:
+                            output = adb_result.stdout.strip()
+                            if output == "1":
+                                # Wait an extra few seconds to let services start
+                                time.sleep(4)
+                                print(f"  ✓ LDPlayer instance '{name_or_id}' has booted completely ({time.time() - start_time:.1f}s)")
+                                return StepResult.SUCCESS
+                    
+                    interruptible_sleep(ctx, 3.0)
+                
+                print(f"  ✗ Boot timeout after {timeout} seconds")
+                return StepResult.FAILED
+                
+            except FileNotFoundError:
+                print(f"  ✗ Executable not found: {resolved_path}")
+                return StepResult.FAILED
+            except Exception as e:
+                print(f"  ✗ LDPlayer execution failed: {e}")
+                return StepResult.FAILED
+
+        self._actions["ld_wait_boot"] = action_ld_wait_boot
+
+        # Wait Device Connects to ADB
+        def action_wait_device(ctx: StepContext, timeout: float = 60, **kwargs) -> StepResult:
+            from utils import list_devices as _list_devices
+            print(f"  ⏳ Wait Device: Scanning for any online device (timeout {timeout}s)...")
+            start_time = time.time()
+            
+            while time.time() - start_time < timeout:
+                if ctx.is_stopped():
+                    return StepResult.FAILED
+                
+                try:
+                    devices = _list_devices()
+                    online = [d for d in devices if d['status'] == 'device']
+                    
+                    if online:
+                        target = online[0]
+                        target_id = target['id']
+                        model = target.get('model', target_id)
+                        
+                        # Build adb command for this specific device
+                        cmd_base = ["adb", "-s", target_id]
+                        
+                        # Check if fully booted
+                        boot_res = subprocess.run(
+                            cmd_base + ["shell", "getprop", "sys.boot_completed"],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        
+                        if boot_res.returncode == 0 and "1" in boot_res.stdout:
+                            print(f"  ✓ Device found: {model} ({target_id})")
+                            
+                            # Auto-connect: update portal to this device
+                            try:
+                                from utils import connect as _connect
+                                new_portal = _connect(target_id)
+                                self.portal = new_portal
+                                ctx.portal = new_portal
+                                print(f"  🔄 Portal connected to: {model}")
+                                
+                                time.sleep(1)
+                                return StepResult.SUCCESS
+                            except Exception as e:
+                                print(f"  ⚠ Connect failed: {e}, retrying...")
+                        else:
+                            elapsed = time.time() - start_time
+                            print(f"  ⏳ Device {model} found, waiting for boot... ({elapsed:.0f}s)")
+                except Exception:
+                    pass
+                
+                interruptible_sleep(ctx, 2.0)
+                
+            print(f"  ✗ Wait Device timeout after {timeout} seconds")
+            return StepResult.FAILED
+            
+        self._actions["wait_device"] = action_wait_device
 
         # Write to TXT - append a row of data to a text file each time this node is hit
         def action_write_txt(ctx: StepContext, file_path: str = "output.txt",
@@ -1371,11 +1654,61 @@ class FlowRunner:
         self.portal = portal or connect()
         self.registry = StepRegistry(self.portal)
         self._stop_flag = False
+        self._on_device_switched_cb = None  # Callback when device switches
         
     def stop(self):
         """Signal the runner to stop"""
         print("🛑 Stop signal received")
         self._stop_flag = True
+    
+    def switch_device(self, ctx: StepContext, callback=None) -> bool:
+        """
+        Try to switch to another connected device when current device disconnects.
+        Returns True if successfully switched, False if no other device available.
+        """
+        current_id = self.portal.device_id
+        print(f"🔄 Device disconnected ({current_id or 'auto'}), searching for another device...")
+        
+        devices = list_devices()
+        online_devices = [d for d in devices if d['status'] == 'device']
+        
+        # Filter out current device
+        candidates = [d for d in online_devices if d['id'] != current_id]
+        
+        if not candidates:
+            print("❌ No other connected device found")
+            if callback:
+                callback({"type": "log", "message": "❌ No other device available to switch to", "level": "error"})
+            return False
+        
+        new_device = candidates[0]
+        new_id = new_device['id']
+        print(f"✅ Switching to device: {new_id} ({new_device.get('model', '')})")
+        
+        try:
+            new_portal = connect(new_id)
+            
+            # Update all references
+            self.portal = new_portal
+            self.registry.portal = new_portal
+            ctx.portal = new_portal
+            
+            msg = f"🔄 Switched to device: {new_device.get('model', new_id)}"
+            print(msg)
+            if callback:
+                callback({"type": "log", "message": msg, "level": "warning"})
+                callback({"type": "device_switched", "device_id": new_id, "model": new_device.get('model', '')})
+            
+            # Notify app.py via callback
+            if self._on_device_switched_cb:
+                self._on_device_switched_cb(new_id, new_portal)
+            
+            return True
+        except Exception as e:
+            print(f"❌ Failed to connect to {new_id}: {e}")
+            if callback:
+                callback({"type": "log", "message": f"❌ Failed to switch: {e}", "level": "error"})
+            return False
     
     def run(self, steps: List[Dict], session_id: str = "default",
             initial_data: Optional[Dict] = None,
@@ -1398,6 +1731,10 @@ class FlowRunner:
             session_id=session_id,
             data=initial_data or {}
         )
+        
+        # Attach log callback that formats a log message to the frontend stream
+        if callback:
+            ctx._log_cb = lambda msg, lvl: callback({"type": "log", "message": msg, "level": lvl})
         
         print(f"\n{'='*60}")
         print(f"🚀 Running flow: {len(steps)} steps")
@@ -1446,6 +1783,14 @@ class FlowRunner:
                 if result == StepResult.SUCCESS:
                     break
                 elif result == StepResult.RETRY or result == StepResult.FAILED:
+                    # Check if device disconnected
+                    if not self.portal.ping():
+                        if self.switch_device(ctx, callback):
+                            # Retry same step with new device
+                            result = self.registry.execute(step.action, ctx, step.params)
+                            if result == StepResult.SUCCESS:
+                                break
+                    
                     if attempt < step.retry_count - 1:
                         print(f"  ↻ Retry {attempt + 2}/{step.retry_count}")
                         time.sleep(step.retry_delay)
@@ -1518,6 +1863,10 @@ class FlowRunner:
             session_id=session_id,
             data=initial_data or {}
         )
+        
+        # Attach log callback that formats a log message to the frontend stream
+        if callback:
+            ctx._log_cb = lambda msg, lvl: callback({"type": "log", "message": msg, "level": lvl})
         
         # Extract editor data
         editor = flow_data.get("_editor", {})
@@ -1598,6 +1947,13 @@ class FlowRunner:
             # Execute the action
             result = self.registry.execute(node_type, ctx, params)
             
+            # Auto-switch device if disconnected
+            if result == StepResult.FAILED and not self.portal.ping():
+                if self.switch_device(ctx, callback):
+                    # Retry same node with new device
+                    print(f"  ↻ Retrying node after device switch...")
+                    result = self.registry.execute(node_type, ctx, params)
+            
             # Record result
             ctx.step_results.append({
                 "id": node.get("id"),
@@ -1623,7 +1979,7 @@ class FlowRunner:
             # Determine next node based on result
             node_conns = conn_map.get(current_node_id, {})
             
-            if node_type in ["condition", "sms_get_code"]:
+            if node_type in ["condition", "sms_get_code", "sms_get_number"]:
                 # Condition/SMS node: follow yes/no based on result
                 if result == StepResult.SUCCESS:
                     # Condition was TRUE, follow "yes" or "out"

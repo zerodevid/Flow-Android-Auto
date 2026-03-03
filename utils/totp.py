@@ -10,7 +10,7 @@ import struct
 import time
 import base64
 import re
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 from dataclasses import dataclass
 
 
@@ -98,7 +98,8 @@ def get_totp_with_remaining(secret: str, digits: int = 6, period: int = 30) -> T
 
 
 def wait_for_fresh_totp(secret: str, min_remaining: int = 5, 
-                        digits: int = 6, period: int = 30) -> str:
+                        digits: int = 6, period: int = 30,
+                        stop_check: Optional[Callable[[], bool]] = None) -> str:
     """
     Wait for a fresh TOTP code with at least min_remaining seconds of validity
     
@@ -112,11 +113,18 @@ def wait_for_fresh_totp(secret: str, min_remaining: int = 5,
         Fresh TOTP code
     """
     while True:
+        if stop_check and stop_check():
+            return ""
         code, remaining = get_totp_with_remaining(secret, digits, period)
         if remaining >= min_remaining:
             return code
-        # Wait for next period
-        time.sleep(remaining + 1)
+        # Wait for next period in small chunks
+        wait_start = time.time()
+        wait_time = remaining + 1
+        while time.time() - wait_start < wait_time:
+            if stop_check and stop_check():
+                return ""
+            time.sleep(0.5)
 
 
 def parse_totp_uri(uri: str) -> TOTPConfig:
@@ -186,12 +194,12 @@ class TOTPManager:
         config = self._secrets[name]
         return get_totp_with_remaining(config.secret, config.digits, config.period)
     
-    def get_fresh(self, name: str, min_remaining: int = 5) -> Optional[str]:
+    def get_fresh(self, name: str, min_remaining: int = 5, stop_check: Optional[Callable[[], bool]] = None) -> Optional[str]:
         """Get fresh TOTP code with minimum remaining validity"""
         if name not in self._secrets:
             return None
         config = self._secrets[name]
-        return wait_for_fresh_totp(config.secret, min_remaining, config.digits, config.period)
+        return wait_for_fresh_totp(config.secret, min_remaining, config.digits, config.period, stop_check)
     
     def remove(self, name: str):
         """Remove a secret"""

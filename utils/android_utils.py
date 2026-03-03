@@ -22,7 +22,7 @@ class AndroidDevice:
     def _run(self, *args, check: bool = True) -> str:
         """Run ADB command"""
         cmd = self._adb_prefix + list(args)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if check and result.returncode != 0:
             raise RuntimeError(f"ADB failed: {result.stderr}")
         return result.stdout.strip()
@@ -31,7 +31,7 @@ class AndroidDevice:
     
     def get_devices(self) -> list:
         """Get list of connected devices"""
-        output = subprocess.run(["adb", "devices"], capture_output=True, text=True)
+        output = subprocess.run(["adb", "devices"], capture_output=True, text=True, encoding="utf-8", errors="replace")
         lines = output.stdout.strip().split("\n")[1:]  # Skip header
         devices = []
         for line in lines:
