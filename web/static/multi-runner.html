@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Runner - Flow Android Auto</title>
+    <link rel="stylesheet" href="/static/css/style.css?v=4">
+    <link rel="stylesheet" href="/static/css/multi-runner.css?v=1">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <h1>🖥️ Multi-Runner</h1>
+                <a href="/" class="btn-small" style="margin-left: 15px; text-decoration: none;">← Back to Editor</a>
+                
+                <span style="margin-left: 20px;">Flow:</span>
+                <select id="flow-select">
+                    <option value="">Loading...</option>
+                </select>
+                
+                <span style="margin-left: 15px;">Devices:</span>
+                <div id="device-checkboxes" class="device-checkbox-group">
+                    <span class="hint">Loading devices...</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="btn-run-all" onclick="runAll()" class="btn-success">▶ Run Selected</button>
+                <button id="btn-stop-all" onclick="stopAll()" class="btn-danger">⏹ Stop All</button>
+            </div>
+        </header>
+
+        <div class="main-container multi-container">
+            <div id="runners-grid" class="runners-grid">
+                <!-- Runner panels will be dynamically inserted here -->
+                <div class="empty-state">
+                    <h3>No Active Runners</h3>
+                    <p>Select devices and a flow from the header, then click "Run Selected" to start.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Runner Panel Template -->
+    <template id="runner-panel-template">
+        <div class="runner-panel">
+            <div class="runner-header">
+                <div>
+                    <h3 class="runner-title">Device ID</h3>
+                    <span class="runner-status status-idle">Idle</span>
+                </div>
+                <button class="btn-stop-runner btn-small btn-danger" onclick="stopRunner(this)">⏹ Stop</button>
+            </div>
+            <div class="runner-body">
+                <div class="runner-current-step">Ready</div>
+                <div class="runner-timer-container"></div>
+                <div class="runner-log"></div>
+            </div>
+        </div>
+    </template>
+
+    <script src="/static/js/multi-runner.js?v=1"></script>
+</body>
+</html>

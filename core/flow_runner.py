@@ -10,6 +10,21 @@ import json
 import os
 import subprocess
 import re
+import threading
+
+# Global registry of devices currently in use by a FlowRunner
+CLAIMED_DEVICES = set()
+DEVICE_LOCK = threading.Lock()
+
+def claim_device(device_id: str):
+    with DEVICE_LOCK:
+        if device_id:
+            CLAIMED_DEVICES.add(device_id)
+
+def release_device(device_id: str):
+    with DEVICE_LOCK:
+        if device_id in CLAIMED_DEVICES:
+            CLAIMED_DEVICES.remove(device_id)
 
 # Fix Windows console encoding: don't crash on emoji, just replace with '?'
 if sys.platform == 'win32':
@@ -1726,6 +1741,7 @@ class StepRegistry:
             from utils import list_devices as _list_devices
             print(f"  ⏳ Wait Device: Scanning for any online device (timeout {timeout}s)...")
             start_time = time.time()
+            last_connect_time = 0
             
             while time.time() - start_time < timeout:
                 if ctx.is_stopped():
@@ -1735,27 +1751,45 @@ class StepRegistry:
                     devices = _list_devices()
                     online = [d for d in devices if d['status'] == 'device']
                     
-                    if online:
-                        target = online[0]
+                    # Filter out devices that are already claimed by other runners
+                    with DEVICE_LOCK:
+                        available = [d for d in online if d['id'] not in CLAIMED_DEVICES]
+                    
+                    if available:
+                        target = available[0]
                         target_id = target['id']
                         model = target.get('model', target_id)
                         
                         # Build adb command for this specific device
                         cmd_base = ["adb", "-s", target_id]
                         
+                        elapsed = time.time() - start_time
                         # Check if fully booted
-                        boot_res = subprocess.run(
-                            cmd_base + ["shell", "getprop", "sys.boot_completed"],
-                            capture_output=True, text=True, timeout=5
-                        )
+                        is_booted = False
+                        try:
+                            boot_res = subprocess.run(
+                                cmd_base + ["shell", "getprop", "sys.boot_completed"],
+                                capture_output=True, text=True, timeout=5
+                            )
+                            is_booted = boot_res.returncode == 0 and "1" in boot_res.stdout
+                        except subprocess.TimeoutExpired:
+                            print(f"  ⏳ Device {model} ADB responding slowly (boot check timeout)... ({elapsed:.0f}s)")
+                        except Exception as inner_e:
+                            print(f"  ⏳ Device {model} ADB check error: {inner_e}")
                         
-                        if boot_res.returncode == 0 and "1" in boot_res.stdout:
+                        if is_booted:
                             print(f"  ✓ Device found: {model} ({target_id})")
                             
                             # Auto-connect: update portal to this device
                             try:
                                 from utils import connect as _connect
                                 new_portal = _connect(target_id)
+                                
+                                # Release old device and claim new one
+                                if self.portal and self.portal.device_id:
+                                    release_device(self.portal.device_id)
+                                claim_device(target_id)
+                                
                                 self.portal = new_portal
                                 ctx.portal = new_portal
                                 print(f"  🔄 Portal connected to: {model}")
@@ -1765,10 +1799,21 @@ class StepRegistry:
                             except Exception as e:
                                 print(f"  ⚠ Connect failed: {e}, retrying...")
                         else:
-                            elapsed = time.time() - start_time
-                            print(f"  ⏳ Device {model} found, waiting for boot... ({elapsed:.0f}s)")
-                except Exception:
-                    pass
+                            print(f"  ⏳ Device {model} found, waiting for OS boot... ({elapsed:.0f}s)")
+                    else:
+                        # Attempt to connect to common emulator ports if no device is found
+                        # (LDPlayer/Nox/Memu/Bluestacks use 5555, 5557, 5559...)
+                        # Trigger this every 5 seconds
+                        if time.time() - last_connect_time > 5:
+                            for port in range(5555, 5586, 2):
+                                subprocess.Popen(
+                                    ["adb", "connect", f"127.0.0.1:{port}"],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL
+                                )
+                            last_connect_time = time.time()
+                except Exception as e:
+                    print(f"  ⚠️ Wait Device inner loop error: {e}")
                 
                 interruptible_sleep(ctx, 2.0)
                 

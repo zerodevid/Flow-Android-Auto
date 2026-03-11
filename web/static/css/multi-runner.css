@@ -1,0 +1,112 @@
+/* multi-runner.css */
+.multi-container {
+    padding: 20px;
+}
+
+.device-checkbox-group {
+    display: inline-flex;
+    gap: 15px;
+    align-items: center;
+    background: #1e293b;
+    padding: 5px 15px;
+    border-radius: 6px;
+}
+
+.device-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.runners-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 20px;
+    padding-bottom: 50px;
+}
+
+.empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 100px 20px;
+    color: #94a3b8;
+    background: #1e293b;
+    border-radius: 8px;
+    border: 1px dashed #334155;
+}
+
+/* Runner Panel styling */
+.runner-panel {
+    background: #1e293b;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    display: flex;
+    flex-direction: column;
+    height: 400px;
+    overflow: hidden;
+}
+
+.runner-header {
+    padding: 12px 15px;
+    background: #0f172a;
+    border-bottom: 1px solid #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.runner-title {
+    margin: 0 0 5px 0;
+    font-size: 16px;
+    color: #e2e8f0;
+}
+
+.runner-status {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.status-idle { background: #475569; color: white; }
+.status-running { background: #059669; color: white; }
+.status-error { background: #e11d48; color: white; }
+.status-stopping { background: #d97706; color: white; }
+
+.runner-body {
+    padding: 15px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    overflow: hidden;
+}
+
+.runner-current-step {
+    font-size: 14px;
+    font-weight: bold;
+    color: #60a5fa;
+    padding: 8px;
+    background: rgba(96, 165, 250, 0.1);
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.runner-log {
+    flex: 1;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 10px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.runner-timer-container {
+    height: 20px;
+}

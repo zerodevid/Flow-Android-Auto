@@ -63,6 +63,10 @@ def reset_portal(device_id=None):
 def index():
     return send_from_directory('static', 'index.html')
 
+@app.route('/multi')
+def multi_runner():
+    return send_from_directory('static', 'multi-runner.html')
+
 @app.route('/static/<path:path>')
 def static_files(path):
     return send_from_directory('static', path)
@@ -206,6 +210,9 @@ def run_flow(flow_id):
             runner = FlowRunner(p)
             ACTIVE_RUNNERS[device_id] = runner
             
+            from core.flow_runner import claim_device, release_device
+            claim_device(device_id)
+            
             # Setup auto-switch callback to update PORTALS cache
             def on_device_switched(new_device_id, new_portal):
                 PORTALS[new_device_id] = new_portal
@@ -289,6 +296,12 @@ def run_flow(flow_id):
             event_queue.put({"type": "error", "error": str(e)})
         finally:
             ACTIVE_RUNNERS.pop(device_id, None)
+            try:
+                from core.flow_runner import release_device
+                release_device(device_id)
+            except ImportError:
+                pass
+                
             # Save the mutated context upon completion or stop
             if 'ctx' in locals():
                 ctx_key = _resolve_device_id(device_id)
@@ -329,6 +342,17 @@ def stop_flow(flow_id):
         ACTIVE_RUNNERS[device_id].stop()
         return jsonify({'status': 'stopping'})
     return jsonify({'status': 'not_running'})
+
+@app.route('/api/multi-run/status', methods=['GET'])
+def multi_run_status():
+    """Get status of all active runners"""
+    statuses = []
+    for dev_id, runner in list(ACTIVE_RUNNERS.items()):
+        statuses.append({
+            'device_id': dev_id,
+            'status': 'running' if not getattr(runner, '_stop_flag', False) else 'stopping'
+        })
+    return jsonify({'runners': statuses})
 
 
 # ==================== Webhook Endpoints ====================
