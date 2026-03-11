@@ -229,6 +229,42 @@ const nodeTypes = {
             { name: 'save_as', type: 'text', label: 'Save As', default: 'sms_balance' }
         ]
     },
+    herosms_config: {
+        icon: '🦸', title: 'HeroSMS Config', color: '#dc2626',
+        params: [
+            { name: 'api_key', type: 'text', label: 'HeroSMS API Key' }
+        ]
+    },
+    herosms_get_number: {
+        icon: '📱', title: 'Hero Get Number', color: '#ef4444', hasMultipleOutputs: true,
+        params: [
+            { name: 'service', type: 'text', label: 'Service Code (e.g. go, tg, wa)' },
+            { name: 'country', type: 'text', label: 'Country (0=any)', default: '0' },
+            { name: 'max_price', type: 'text', label: 'Max Price (optional)' },
+            { name: 'save_as', type: 'text', label: 'Save Phone As', default: 'herosms_phone' }
+        ]
+    },
+    herosms_get_code: {
+        icon: '💬', title: 'Hero Get Code', color: '#f87171', hasMultipleOutputs: true,
+        params: [
+            { name: 'from_data', type: 'text', label: 'Activation ID From', default: 'herosms_activation_id' },
+            { name: 'timeout', type: 'number', label: 'Timeout (s)', default: 120 },
+            { name: 'save_as', type: 'text', label: 'Save Code As', default: 'herosms_code' }
+        ]
+    },
+    herosms_set_status: {
+        icon: '✅', title: 'Hero Set Status', color: '#b91c1c',
+        params: [
+            { name: 'from_data', type: 'text', label: 'Activation ID From', default: 'herosms_activation_id' },
+            { name: 'status', type: 'select', label: 'Status', options: ['6', '8', '3'], default: '6' }
+        ]
+    },
+    herosms_get_balance: {
+        icon: '💰', title: 'Hero Balance', color: '#991b1b',
+        params: [
+            { name: 'save_as', type: 'text', label: 'Save As', default: 'herosms_balance' }
+        ]
+    },
     ldplayer: {
         icon: '🎮', title: 'LDPlayer', color: '#f59e0b',
         params: [
@@ -2562,6 +2598,27 @@ function handleStreamMessage(msg, executionOrder) {
             if (nodeEl) {
                 nodeEl.classList.remove('node-running');
                 nodeEl.classList.add(msg.result === 'success' ? 'node-success' : 'node-error');
+                // Clear timer overlay
+                const timer = nodeEl.querySelector('.node-timer');
+                if (timer) timer.remove();
+            }
+        }
+
+    } else if (msg.type === 'timer') {
+        const nodeId = msg.id;
+        if (nodeId) {
+            const nodeEl = document.querySelector(`.node[data-id="${nodeId}"]`);
+            if (nodeEl) {
+                let timer = nodeEl.querySelector('.node-timer');
+                if (!timer) {
+                    timer = document.createElement('div');
+                    timer.className = 'node-timer';
+                    nodeEl.appendChild(timer);
+                }
+                const remaining = Math.ceil(msg.remaining);
+                const total = Math.ceil(msg.total);
+                const pct = total > 0 ? ((total - remaining) / total) * 100 : 0;
+                timer.innerHTML = `<div class="timer-bar" style="width:${pct}%"></div><span class="timer-text">⏱ ${remaining}s</span>`;
             }
         }
 

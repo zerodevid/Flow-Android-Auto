@@ -252,6 +252,37 @@ body {
     }
 }
 
+/* Node timer overlay */
+.node-timer {
+    position: relative;
+    height: 22px;
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 0 0 8px 8px;
+    overflow: hidden;
+}
+
+.timer-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+    opacity: 0.4;
+    transition: width 0.5s ease;
+}
+
+.timer-text {
+    position: relative;
+    display: block;
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fbbf24;
+    line-height: 22px;
+    z-index: 1;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+
 .node-header {
     padding: 10px 12px;
     background: var(--bg-tertiary);
@@ -342,7 +373,11 @@ body {
 .node[data-type="sms_get_code"] .node-output-yes,
 .node[data-type="sms_get_code"] .node-output-no,
 .node[data-type="sms_get_number"] .node-output-yes,
-.node[data-type="sms_get_number"] .node-output-no {
+.node[data-type="sms_get_number"] .node-output-no,
+.node[data-type="herosms_get_code"] .node-output-yes,
+.node[data-type="herosms_get_code"] .node-output-no,
+.node[data-type="herosms_get_number"] .node-output-yes,
+.node[data-type="herosms_get_number"] .node-output-no {
     position: absolute;
     right: -7px;
     width: 14px;
@@ -356,21 +391,27 @@ body {
 
 .node[data-type="condition"] .node-output-yes,
 .node[data-type="sms_get_code"] .node-output-yes,
-.node[data-type="sms_get_number"] .node-output-yes {
+.node[data-type="sms_get_number"] .node-output-yes,
+.node[data-type="herosms_get_code"] .node-output-yes,
+.node[data-type="herosms_get_number"] .node-output-yes {
     top: 30%;
     background: var(--success);
 }
 
 .node[data-type="condition"] .node-output-no,
 .node[data-type="sms_get_code"] .node-output-no,
-.node[data-type="sms_get_number"] .node-output-no {
+.node[data-type="sms_get_number"] .node-output-no,
+.node[data-type="herosms_get_code"] .node-output-no,
+.node[data-type="herosms_get_number"] .node-output-no {
     top: 70%;
     background: var(--accent);
 }
 
 .node[data-type="condition"] .node-output,
 .node[data-type="sms_get_code"] .node-output,
-.node[data-type="sms_get_number"] .node-output {
+.node[data-type="sms_get_number"] .node-output,
+.node[data-type="herosms_get_code"] .node-output,
+.node[data-type="herosms_get_number"] .node-output {
     display: none;
 }
 
@@ -418,6 +459,26 @@ body {
 
 .node[data-type="fingerprint"] .node-header {
     background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+}
+
+.node[data-type="herosms_config"] .node-header {
+    background: #dc2626;
+}
+
+.node[data-type="herosms_get_number"] .node-header {
+    background: #ef4444;
+}
+
+.node[data-type="herosms_get_code"] .node-header {
+    background: #f87171;
+}
+
+.node[data-type="herosms_set_status"] .node-header {
+    background: #b91c1c;
+}
+
+.node[data-type="herosms_get_balance"] .node-header {
+    background: #991b1b;
 }
 
 /* ==================== Forms ==================== */

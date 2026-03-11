@@ -72,6 +72,8 @@ class StepContext:
     step_results: List[Dict] = field(default_factory=list)
     _is_stopped_cb: Optional[Callable[[], bool]] = None
     _log_cb: Optional[Callable[[str, str], None]] = None
+    _timer_cb: Optional[Callable[[str, float, float], None]] = None  # (node_id, remaining, total)
+    _current_node_id: Optional[str] = None
     
     def is_stopped(self) -> bool:
         """Check if flow execution is stopped"""
@@ -82,6 +84,11 @@ class StepContext:
         print(message)
         if self._log_cb:
             self._log_cb(message, level)
+    
+    def emit_timer(self, remaining: float, total: float):
+        """Emit a timer event to show countdown on the current node"""
+        if self._timer_cb and self._current_node_id:
+            self._timer_cb(self._current_node_id, remaining, total)
     
     def set(self, key: str, value: Any):
         """Set a value in shared data"""
@@ -106,16 +113,25 @@ class StepConfig:
 
 
 def interruptible_sleep(ctx: StepContext, duration: float):
-    """Sleep that can be interrupted by the stop flag"""
+    """Sleep that can be interrupted by the stop flag, emits timer events"""
     if duration <= 0:
         return
     start_time = time.time()
+    last_emit = 0
     while time.time() - start_time < duration:
         if ctx.is_stopped():
             break
-        sleep_time = min(0.2, duration - (time.time() - start_time))
+        elapsed = time.time() - start_time
+        remaining = duration - elapsed
+        # Emit timer every ~1 second
+        if int(elapsed) > last_emit:
+            last_emit = int(elapsed)
+            ctx.emit_timer(remaining, duration)
+        sleep_time = min(0.2, remaining)
         if sleep_time > 0:
             time.sleep(sleep_time)
+    # Final emit: 0 remaining
+    ctx.emit_timer(0, duration)
 
 
 class StepRegistry:
@@ -1051,6 +1067,9 @@ class StepRegistry:
                 if ctx.is_stopped():
                     break
                 
+                remaining = timeout - (time.time() - start_time)
+                ctx.emit_timer(remaining, timeout)
+                
                 try:
                     result = _sms_api_call("getStatus", api_key, {"id": str(activation_id)})
                     
@@ -1162,6 +1181,223 @@ class StepRegistry:
                 print(f"  ✗ SMS API error: {e}")
                 return StepResult.FAILED
 
+        # ==================== HeroSMS API Actions ====================
+        
+        HEROSMS_API = "https://hero-sms.com/stubs/handler_api.php"
+        
+        def _herosms_api_call(action: str, api_key: str, extra_params: Dict = None) -> str:
+            """Helper: make HeroSMS API GET request and return response text"""
+            import urllib.request
+            import urllib.parse
+            
+            params = {"api_key": api_key, "action": action}
+            if extra_params:
+                params.update(extra_params)
+            
+            url = f"{HEROSMS_API}?{urllib.parse.urlencode(params)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "FlowRunner/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read().decode('utf-8').strip()
+        
+        def _get_herosms_api_key(ctx: StepContext) -> str:
+            """Helper: get API key from context"""
+            key = ctx.get("herosms_api_key")
+            if not key:
+                print("  ✗ HeroSMS API key not found! Add HeroSMS Config node first.")
+                return None
+            return key
+            
+        def action_herosms_config(ctx: StepContext, api_key: str = None, 
+                              save_as: str = "herosms_api_key", **kwargs) -> StepResult:
+            if not api_key:
+                print("  ✗ API key is required")
+                return StepResult.FAILED
+            
+            ctx.set(save_as, api_key)
+            print(f"  🔑 HeroSMS API key configured")
+            return StepResult.SUCCESS
+            
+        def action_herosms_get_number(ctx: StepContext, service: str = None,
+                                   country: str = "0", max_price: str = None,
+                                   save_as: str = "herosms_phone", **kwargs) -> StepResult:
+            api_key = _get_herosms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            if not service:
+                print("  ✗ Service code is required (e.g. 'go' for Google)")
+                return StepResult.FAILED
+            
+            print(f"  📱 Getting HeroSMS number for service: {service}, country: {country}")
+            
+            try:
+                params = {"service": service, "country": str(country)}
+                if max_price:
+                    params["maxPrice"] = str(max_price)
+                
+                result = _herosms_api_call("getNumber", api_key, params)
+                
+                if result.startswith("ACCESS_NUMBER:"):
+                    parts = result.split(":")
+                    activation_id = parts[1]
+                    phone_number = parts[2]
+                    
+                    ctx.set("herosms_activation_id", activation_id)
+                    ctx.set(save_as, phone_number)
+                    print(f"  ✓ HeroSMS Number: {phone_number} (ID: {activation_id})")
+                    return StepResult.SUCCESS
+                
+                elif "NO_NUMBERS" in result:
+                    print(f"  ✗ No numbers available for service={service}, country={country}")
+                elif "NO_BALANCE" in result:
+                    print(f"  ✗ Insufficient balance")
+                elif "BAD_SERVICE" in result:
+                    print(f"  ✗ Invalid service code: {service}")
+                elif "BAD_KEY" in result:
+                    print(f"  ✗ Invalid API key")
+                else:
+                    print(f"  ✗ Error: {result}")
+                
+                return StepResult.FAILED
+                
+            except Exception as e:
+                print(f"  ✗ HeroSMS API error: {e}")
+                return StepResult.FAILED
+                
+        def action_herosms_get_code(ctx: StepContext, from_data: str = "herosms_activation_id",
+                                 timeout: float = 120, save_as: str = "herosms_code",
+                                 **kwargs) -> StepResult:
+            api_key = _get_herosms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            activation_id = ctx.get(from_data)
+            if not activation_id:
+                print(f"  ✗ Activation ID not found in context key: {from_data}")
+                return StepResult.FAILED
+            
+            print(f"  ⏳ Waiting for HeroSMS code (ID: {activation_id}, timeout: {timeout}s)...")
+            
+            start_time = time.time()
+            poll_interval = 3
+            last_code = None
+            
+            while time.time() - start_time < timeout:
+                if ctx.is_stopped():
+                    break
+                
+                remaining = timeout - (time.time() - start_time)
+                ctx.emit_timer(remaining, timeout)
+                
+                try:
+                    result = _herosms_api_call("getStatus", api_key, {"id": str(activation_id)})
+                    
+                    if result.startswith("STATUS_OK:"):
+                        code = result.split(":", 1)[1]
+                        ctx.set(save_as, code)
+                        elapsed = time.time() - start_time
+                        print(f"  ✓ HeroSMS code received: {code} ({elapsed:.0f}s)")
+                        return StepResult.SUCCESS
+                    
+                    elif result.startswith("STATUS_WAIT_RETRY:"):
+                        last_code = result.split(":", 1)[1]
+                        print(f"  🔄 Waiting for new SMS (last: {last_code})...")
+                    
+                    elif result == "STATUS_WAIT_CODE":
+                        elapsed = time.time() - start_time
+                        print(f"  ⏳ Waiting... ({elapsed:.0f}s)")
+                    
+                    elif result == "STATUS_CANCEL":
+                        print(f"  ✗ Activation was cancelled")
+                        return StepResult.FAILED
+                    
+                    elif "NO_ACTIVATION" in result:
+                        print(f"  ✗ Invalid activation ID: {activation_id}")
+                        return StepResult.FAILED
+                    
+                    else:
+                        print(f"  ⚠️ Unknown status: {result}")
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Poll error: {e}")
+                
+                interruptible_sleep(ctx, poll_interval)
+            
+            print(f"  ✗ HeroSMS timeout after {timeout}s (or stopped)")
+            return StepResult.FAILED
+            
+        def action_herosms_set_status(ctx: StepContext, from_data: str = "herosms_activation_id",
+                                   status: str = "6", **kwargs) -> StepResult:
+            api_key = _get_herosms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            activation_id = ctx.get(from_data)
+            if not activation_id:
+                print(f"  ✗ Activation ID not found in context key: {from_data}")
+                return StepResult.FAILED
+            
+            status_labels = {"6": "Confirm", "8": "Cancel", "3": "Request another SMS"}
+            label = status_labels.get(str(status), str(status))
+            print(f"  📋 Setting HeroSMS status: {label} (ID: {activation_id})")
+            
+            try:
+                result = _herosms_api_call("setStatus", api_key, {
+                    "id": str(activation_id), 
+                    "status": str(status)
+                })
+                
+                if "ACCESS_READY" in result:
+                    print(f"  ✓ Phone ready for SMS")
+                    return StepResult.SUCCESS
+                elif "ACCESS_RETRY_GET" in result:
+                    print(f"  ✓ Waiting for new SMS")
+                    return StepResult.SUCCESS
+                elif "ACCESS_ACTIVATION" in result:
+                    print(f"  ✓ Activation confirmed")
+                    return StepResult.SUCCESS
+                elif "ACCESS_CANCEL" in result:
+                    print(f"  ✓ Activation cancelled")
+                    return StepResult.SUCCESS
+                elif "EARLY_CANCEL_DENIED" in result:
+                    print(f"  ✗ Cannot cancel yet (wait 2 min after purchase)")
+                    return StepResult.FAILED
+                elif "BAD_STATUS" in result:
+                    print(f"  ✗ Invalid status: {status}")
+                    return StepResult.FAILED
+                else:
+                    print(f"  ⚠️ Response: {result}")
+                    return StepResult.SUCCESS
+                    
+            except Exception as e:
+                print(f"  ✗ HeroSMS API error: {e}")
+                return StepResult.FAILED
+                
+        def action_herosms_get_balance(ctx: StepContext, save_as: str = "herosms_balance",
+                                    **kwargs) -> StepResult:
+            api_key = _get_herosms_api_key(ctx)
+            if not api_key:
+                return StepResult.FAILED
+            
+            try:
+                result = _herosms_api_call("getBalance", api_key)
+                
+                if result.startswith("ACCESS_BALANCE:"):
+                    balance = result.split(":")[1]
+                    ctx.set(save_as, balance)
+                    print(f"  💰 HeroSMS Balance: {balance}")
+                    return StepResult.SUCCESS
+                elif "BAD_KEY" in result:
+                    print(f"  ✗ Invalid API key")
+                    return StepResult.FAILED
+                else:
+                    print(f"  ✗ Error: {result}")
+                    return StepResult.FAILED
+                    
+            except Exception as e:
+                print(f"  ✗ HeroSMS API error: {e}")
+                return StepResult.FAILED
+
         self._actions["shell"] = action_shell
         self._actions["close"] = action_close
         self._actions["clear_data"] = action_clear_data
@@ -1174,6 +1410,11 @@ class StepRegistry:
         self._actions["sms_get_code"] = action_sms_get_code
         self._actions["sms_set_status"] = action_sms_set_status
         self._actions["sms_get_balance"] = action_sms_get_balance
+        self._actions["herosms_config"] = action_herosms_config
+        self._actions["herosms_get_number"] = action_herosms_get_number
+        self._actions["herosms_get_code"] = action_herosms_get_code
+        self._actions["herosms_set_status"] = action_herosms_set_status
+        self._actions["herosms_get_balance"] = action_herosms_get_balance
 
         def _resolve_executable_path(exe_name: str) -> str:
             import shutil
@@ -1185,7 +1426,7 @@ class StepRegistry:
             # Common LDPlayer installation paths
             drives = ["C:", "D:", "E:"]
             folders = [
-                r"\LDPlayer4.0\LDPlayer",
+                r"\LDPlayer\LDPlayer64",
                 r"\XuanZhi\LDPlayer"
             ]
             for drive in drives:
@@ -1729,7 +1970,8 @@ class FlowRunner:
         ctx = StepContext(
             portal=self.portal,
             session_id=session_id,
-            data=initial_data or {}
+            data=initial_data or {},
+            _is_stopped_cb=lambda: self._stop_flag
         )
         
         # Attach log callback that formats a log message to the frontend stream
@@ -1861,12 +2103,19 @@ class FlowRunner:
         ctx = StepContext(
             portal=self.portal,
             session_id=session_id,
-            data=initial_data or {}
+            data=initial_data or {},
+            _is_stopped_cb=lambda: self._stop_flag
         )
         
         # Attach log callback that formats a log message to the frontend stream
         if callback:
             ctx._log_cb = lambda msg, lvl: callback({"type": "log", "message": msg, "level": lvl})
+            ctx._timer_cb = lambda node_id, remaining, total: callback({
+                "type": "timer",
+                "id": node_id,
+                "remaining": round(remaining, 1),
+                "total": round(total, 1)
+            })
         
         # Extract editor data
         editor = flow_data.get("_editor", {})
@@ -1941,6 +2190,9 @@ class FlowRunner:
                     "reset_flow": reset_flag
                 })
             
+            # Set current node id for timer events
+            ctx._current_node_id = node.get("id")
+            
             # Wait before
             time.sleep(0.3)
             
@@ -1979,7 +2231,7 @@ class FlowRunner:
             # Determine next node based on result
             node_conns = conn_map.get(current_node_id, {})
             
-            if node_type in ["condition", "sms_get_code", "sms_get_number"]:
+            if node_type in ["condition", "sms_get_code", "sms_get_number", "herosms_get_code", "herosms_get_number"]:
                 # Condition/SMS node: follow yes/no based on result
                 if result == StepResult.SUCCESS:
                     # Condition was TRUE, follow "yes" or "out"
